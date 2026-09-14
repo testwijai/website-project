@@ -1,5 +1,5 @@
 /**
- * Scroll Animation - Khon Kaen Explorer
+ * Scroll Animation - KaenGuide
  * Triggers entrance animations when elements scroll into view.
  * Add any of these classes to elements:
  *   .fade-up | .fade-left | .fade-right | .scale-up

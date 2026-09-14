@@ -4,11 +4,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>เกี่ยวกับเรา - Khon Kaen Explorer</title>
+    <title>เกี่ยวกับเรา - KaenGuide</title>
     <meta name="description"
-        content="รู้จักกับ Khon Kaen Explorer แพลตฟอร์มท่องเที่ยวขอนแก่นที่ช่วยวางแผนทริปและค้นพบสถานที่สุดพิเศษในขอนแก่น">
+        content="รู้จักกับ KaenGuide แพลตฟอร์มท่องเที่ยวขอนแก่นที่ช่วยวางแผนทริปและค้นพบสถานที่สุดพิเศษในขอนแก่น">
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="../index/style.css">
+    <link rel="stylesheet" href="../index/style.css?v=6">
+    <link rel="stylesheet" href="../mobile-nav.css?v=6">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body {
@@ -362,6 +363,11 @@
                 min-height: 360px;
             }
 
+            .about-hero {
+                padding: 60px 5% 50px !important;
+                min-height: 340px !important;
+            }
+
             .about-hero h1 {
                 font-size: clamp(2rem, 7vw, 2.6rem);
             }
@@ -401,14 +407,14 @@
         <div class="logo">
             <i class="fa-solid fa-map-location-dot"></i>
             <div class="logo-text">
-                <span class="brand">Khon Kaen Explorer</span>
-                <span class="tagline">เที่ยวขอนแก่น...ให้เป็นมากกว่าการเดินทาง</span>
+                <span class="brand">KaenGuide</span>
+                <span class="tagline">วางแผนง่าย เดินทางได้จริง</span>
             </div>
         </div>
         <div class="nav-links" style="position: absolute; left: 50%; transform: translateX(-50%);">
             <a href="../index/index.html">หน้าแรก</a>
-            <a href="../tripplaner/index.html">จัดแผนอัตโนมัติ</a>
-            <a href="../customplan/index.html">จัดทริปด้วยตัวเอง</a>
+            <a href="../tripplaner/index.html">วางแผนอัตโนมัติ</a>
+            <a href="../customplan/index.html">วางแผนด้วยตัวเอง</a>
             <a href="../places/index.html">สถานที่ท่องเที่ยว</a>
             <a href="#" class="active">เกี่ยวกับเรา</a>
         </div>
@@ -426,7 +432,7 @@
         <div class="about-hero-content">
             <div class="about-hero-badge">
                 <i class="fa-solid fa-map-location-dot"></i>
-                Khon Kaen Explorer
+                KaenGuide
             </div>
             <h1>ทำไมเราถึงรักขอนแก่น</h1>
             <p>แพลตฟอร์มท่องเที่ยวที่ถูกสร้างขึ้นเพื่อให้ทุกคนค้นพบความมหัศจรรย์ของขอนแก่น
@@ -448,8 +454,8 @@
                         </div>
                         <div style="width:1px;height:40px;background:#eee;"></div>
                         <div>
-                            <div class="stat-num">5★</div>
-                            <div class="stat-lbl">คะแนนจากผู้ใช้</div>
+                            <div class="stat-num">GPS</div>
+                            <div class="stat-lbl">ระบบนำทางอัจฉริยะ</div>
                         </div>
                     </div>
                 </div>
@@ -457,7 +463,7 @@
                     <span class="section-label">พันธกิจของเรา</span>
                     <h2 class="section-title">ทำให้การท่องเที่ยวขอนแก่น<br>ง่าย สนุก และไม่พลาด</h2>
                     <div class="section-divider"></div>
-                    <p class="section-desc">Khon Kaen Explorer เกิดขึ้นจากความรักและความภาคภูมิใจในจังหวัดขอนแก่น
+                    <p class="section-desc">KaenGuide เกิดขึ้นจากความรักและความภาคภูมิใจในจังหวัดขอนแก่น
                         เราต้องการให้ทั้งคนท้องถิ่นและนักท่องเที่ยวสามารถสัมผัสขอนแก่นได้อย่างลึกซึ้ง ครบถ้วน
                         และมีความสุขที่สุด</p>
                     <p class="section-desc" style="margin-top: 1rem;">ไม่ว่าจะเป็นการค้นพบสถานที่ซ่อนเร้น
@@ -532,7 +538,7 @@
             </div>
             <div class="team-grid">
                 <div class="team-card fade-up">
-                    <img src="" alt="ทีมงาน" class="team-avatar">
+                    <img src="img/apec.png" alt="ทีมงาน" class="team-avatar">
                     <div class="team-info">
                         <h3>นักพัฒนา Frontend</h3>
                         <div class="team-role">Web Developer</div>
@@ -540,7 +546,7 @@
                     </div>
                 </div>
                 <div class="team-card fade-up" style="transition-delay:0.2s">
-                    <img src="" alt="ทีมงาน" class="team-avatar">
+                    <img src="img/plab.png" alt="ทีมงาน" class="team-avatar">
                     <div class="team-info">
                         <h3>นักพัฒนา Backend</h3>
                         <div class="team-role">System Developer</div>
@@ -549,7 +555,7 @@
                     </div>
                 </div>
                 <div class="team-card fade-up" style="transition-delay:0.4s">
-                    <img src="" alt="ทีมงาน" class="team-avatar">
+                    <img src="img/seen.png" alt="ทีมงาน" class="team-avatar">
                     <div class="team-info">
                         <h3>นักวางแผนเนื้อหา</h3>
                         <div class="team-role">Content Curator</div>
@@ -576,11 +582,11 @@
 
     <!-- Footer -->
     <footer>
-        <p>&copy; 2026 Khon Kaen Explorer. All Rights Reserved.</p>
+        <p>&copy; 2026 KaenGuide. All Rights Reserved.</p>
     </footer>
 
     <script src="../scroll-animate.js"></script>
-    <script src="../mobile-nav.js"></script>
+    <script src="../mobile-nav.js?v=3"></script>
 </body>
 
 </html>

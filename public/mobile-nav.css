@@ -1,4 +1,4 @@
-/* ===== Mobile Navigation Styles - Khon Kaen Explorer ===== */
+/* ===== Mobile Navigation Styles - KaenGuide ===== */
 
 /* Toggle Button in Navbar */
 .mobile-menu-toggle {
@@ -215,16 +215,145 @@
     background: var(--primary-dark, #A04E33);
 }
 
-/* Responsive Behavior for Navbar */
+/* Mobile Bottom Navigation Bar */
+.mobile-bottom-nav {
+    display: none;
+}
+
+/* Responsive Behavior for Mobile */
 @media (max-width: 820px) {
+    /* เมนูขวาบนไม่ต้องมีตามที่ผู้ใช้ต้องการ */
+    .mobile-menu-toggle {
+        display: none !important;
+    }
+
+    /* ซ่อน navbar บนมือถือทุกหน้า ยกเว้นหน้าแรก */
+    body:not(:has(.hero)):not(.home-page):not(.hero-page) .navbar:not(.admin-navbar) {
+        display: none !important;
+    }
+
     .navbar {
         padding: 0.85rem 4% !important;
     }
-    .mobile-menu-toggle {
-        display: flex !important;
-    }
+
     .navbar .nav-links,
     .navbar .nav-actions {
+        display: none !important;
+    }
+
+    /* Bottom Navigation Bar (Fixed at bottom) */
+    .mobile-bottom-nav {
+        display: flex !important;
+        position: fixed !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        height: 60px !important;
+        background: #FFFFFF !important;
+        border-top: 1px solid #ECE7E1 !important;
+        box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08) !important;
+        z-index: 1990 !important;
+        padding: 4px 4px calc(6px + env(safe-area-inset-bottom, 0px)) 4px !important;
+        justify-content: space-around !important;
+        align-items: flex-end !important;
+        overflow: visible !important;
+    }
+
+    body {
+        padding-bottom: 74px !important;
+    }
+
+    .mobile-bottom-nav-item {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 3px !important;
+        text-decoration: none !important;
+        color: #78716C !important;
+        font-family: 'Kanit', sans-serif !important;
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+        text-align: center !important;
+        padding-bottom: 4px !important;
+        transition: all 0.2s ease !important;
+        -webkit-tap-highlight-color: transparent !important;
+        overflow: visible !important;
+    }
+
+    /* แก้ตัวอักษรไม่ให้ตกบรรทัด */
+    .mobile-bottom-nav-item span {
+        font-size: 0.66rem !important;
+        font-weight: 500 !important;
+        white-space: nowrap !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        letter-spacing: -0.2px !important;
+        line-height: 1.1 !important;
+    }
+
+    .mobile-bottom-nav-item i {
+        font-size: 1.25rem !important;
+        color: #78716C !important;
+        transition: transform 0.2s ease, color 0.2s ease !important;
+    }
+
+    .mobile-bottom-nav-item.active {
+        color: var(--primary-color, #BA5D3E) !important;
+        font-weight: 600 !important;
+    }
+
+    .mobile-bottom-nav-item.active i {
+        color: var(--primary-color, #BA5D3E) !important;
+        transform: translateY(-1px) !important;
+    }
+
+    /* ปุ่มวางแผนอัตโนมัติตรงกลาง โผล่ขึ้นมาเป็นครึ่งวงกลมเด่น */
+    .mobile-bottom-nav-item.center-fab {
+        position: relative !important;
+        margin-top: -24px !important;
+        z-index: 2000 !important;
+        overflow: visible !important;
+    }
+
+    .mobile-bottom-nav-item.center-fab .fab-circle {
+        width: 52px !important;
+        height: 52px !important;
+        border-radius: 50% !important;
+        background: linear-gradient(135deg, var(--primary-color, #BA5D3E) 0%, #D5542E 100%) !important;
+        border: 3.5px solid #FFFFFF !important;
+        box-shadow: 0 6px 18px rgba(186, 93, 62, 0.45) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease !important;
+    }
+
+    .mobile-bottom-nav-item.center-fab .fab-circle i {
+        color: #FFFFFF !important;
+        font-size: 1.35rem !important;
+        transform: none !important;
+    }
+
+    .mobile-bottom-nav-item.center-fab span {
+        margin-top: 2px !important;
+        font-size: 0.64rem !important;
+        font-weight: 600 !important;
+        color: var(--primary-color, #BA5D3E) !important;
+        white-space: nowrap !important;
+    }
+
+    .mobile-bottom-nav-item.center-fab:active .fab-circle {
+        transform: scale(0.92) !important;
+    }
+
+    .mobile-bottom-nav-item.center-fab.active .fab-circle {
+        box-shadow: 0 8px 24px rgba(186, 93, 62, 0.6) !important;
+        transform: scale(1.05) !important;
+    }
+
+    /* Hide legacy floating action button on mobile */
+    .mobile-fab-planner {
         display: none !important;
     }
 }

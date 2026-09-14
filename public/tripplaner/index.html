@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>จัดแผนท่องเที่ยว - Khon Kaen Trip Planner</title>
+    <title>วางแผนอัตโนมัติ - Khon Kaen Trip Planner</title>
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="../index/style.css"> <!-- Base styles -->
+    <link rel="stylesheet" href="../index/style.css?v=6"> <!-- Base styles -->
+    <link rel="stylesheet" href="../mobile-nav.css?v=6">
     <link rel="stylesheet" href="style.css">
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -13,22 +14,26 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <!-- Leaflet Draw CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <!-- leaflet-rotate for bearing/heading-up navigation -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.css" />
+    <link rel="stylesheet" href="../trip-navigation.css?v=2.2">
 </head>
 <body>
-    <script src="../data.js"></script>
+    <script src="../data.js?v=2.3"></script>
+    <script src="../khonkaen_districts.js"></script>
 
     <nav class="navbar" style="position: relative;">
         <div class="logo">
             <i class="fa-solid fa-map-location-dot"></i>
             <div class="logo-text">
-                <span class="brand">Khon Kaen Explorer</span>
-                <span class="tagline">เที่ยวขอนแก่น...ให้เป็นมากกว่าการเดินทาง</span>
+                <span class="brand">KaenGuide</span>
+                <span class="tagline">วางแผนง่าย เดินทางได้จริง</span>
             </div>
         </div>
         <div class="nav-links" style="position: absolute; left: 50%; transform: translateX(-50%);">
             <a href="../index/index.html">หน้าแรก</a>
-            <a href="#" class="active">จัดแผนอัตโนมัติ</a>
-            <a href="../customplan/index.html">จัดทริปด้วยตัวเอง</a>
+            <a href="#" class="active">วางแผนอัตโนมัติ</a>
+            <a href="../customplan/index.html">วางแผนด้วยตัวเอง</a>
             <a href="../places/index.html">สถานที่ท่องเที่ยว</a>
             <a href="../about/index.html">เกี่ยวกับเรา</a>
         </div>
@@ -57,7 +62,7 @@
     <div class="planner-container view-form">
         <!-- Sidebar Form -->
         <div class="planner-sidebar fade-left" id="sidebar-form">
-            <h2><i class="fa-solid fa-map-location-dot"></i> จัดแผนท่องเที่ยว</h2>
+            <h2><i class="fa-solid fa-route"></i> วางแผนอัตโนมัติ</h2>
             <form id="trip-form">
                 <div class="form-row">
                     <div class="form-group">
@@ -123,16 +128,55 @@
                     </select>
                 </div>
 
+                <!-- District (Amphoe) Selection Filter -->
+                <div class="form-group district-form-group" style="position: relative;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+                        <label style="margin-bottom: 0; display: flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-map-location-dot" style="color: var(--primary-color);"></i>
+                            <span>อำเภอที่ต้องการเที่ยว</span>
+                        </label>
+                        <span id="district-count-badge" class="district-badge-all">ทุกอำเภอ (26)</span>
+                    </div>
+                    <div class="district-dropdown-wrapper">
+                        <button type="button" class="district-dropdown-btn" id="districtDropdownBtn" aria-expanded="false">
+                            <span class="district-btn-text" id="districtBtnText">
+                                <i class="fa-solid fa-earth-asia" style="color: var(--primary-color); margin-right: 6px;"></i>ทุกอำเภอ (ทั้งจังหวัดขอนแก่น)
+                            </span>
+                            <i class="fa-solid fa-chevron-down district-chevron" id="districtChevron"></i>
+                        </button>
+                        <div class="district-dropdown-menu" id="districtDropdownMenu">
+                            <div class="district-search-bar">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="districtSearchInput" placeholder="ค้นหาชื่ออำเภอ..." autocomplete="off">
+                            </div>
+                            <div class="district-quick-actions">
+                                <button type="button" class="dist-action-btn" id="btnSelectAllDistricts">
+                                    <i class="fa-solid fa-check-double"></i> ทุกอำเภอ
+                                </button>
+                                <button type="button" class="dist-action-btn dist-clear-btn" id="btnClearDistricts">
+                                    <i class="fa-solid fa-rotate-left"></i> ล้างการเลือก
+                                </button>
+                            </div>
+                            <div class="district-options-list" id="districtOptionsList">
+                                <!-- Populated dynamically by script.js -->
+                            </div>
+                        </div>
+                    </div>
+                    <small id="district-lock-info" style="display: block; font-size: 0.78rem; color: var(--text-muted); margin-top: 4px;">
+                        <i class="fa-solid fa-circle-info"></i> สามารถเลือกได้หลายอำเภอตามที่ต้องการ
+                    </small>
+                </div>
+
                 <div class="form-group">
                     <label>ประเภทสถานที่ (เลือกได้หลายรายการ)</label>
                     <div class="checkbox-grid">
                         <label class="checkbox-label"><input type="checkbox" name="category" value="วัด/สถานที่ศักดิ์สิทธิ์" checked> วัด/สถานที่ศักดิ์สิทธิ์</label>
                         <label class="checkbox-label"><input type="checkbox" name="category" value="ธรรมชาติ" checked> ธรรมชาติ</label>
                         <label class="checkbox-label"><input type="checkbox" name="category" value="คาเฟ่/ถ่ายรูป" checked> คาเฟ่/ถ่ายรูป</label>
-                        <label class="checkbox-label"><input type="checkbox" name="category" value="ตลาด/ช้อปปิ้ง"> ตลาด/ช้อปปิ้ง</label>
-                        <label class="checkbox-label"><input type="checkbox" name="category" value="พิพิธภัณฑ์"> พิพิธภัณฑ์</label>
-                        <label class="checkbox-label"><input type="checkbox" name="category" value="ร้านอาหาร"> ร้านอาหาร</label>
-                        <label class="checkbox-label"><input type="checkbox" name="category" value="ธรรมชาติ/สวนสัตว์"> ธรรมชาติ/สวนสัตว์</label>
+                        <label class="checkbox-label"><input type="checkbox" name="category" value="ตลาด/ช้อปปิ้ง" checked> ตลาด/ช้อปปิ้ง</label>
+                        <label class="checkbox-label"><input type="checkbox" name="category" value="พิพิธภัณฑ์" checked> พิพิธภัณฑ์</label>
+                        <label class="checkbox-label"><input type="checkbox" name="category" value="ร้านอาหาร" checked> ร้านอาหาร</label>
+                        <label class="checkbox-label"><input type="checkbox" name="category" value="ธรรมชาติ/สวนสัตว์" checked> ธรรมชาติ/สวนสัตว์</label>
                     </div>
                 </div>
                 <div class="form-group">
@@ -146,13 +190,20 @@
                 </div>
 
                 <div class="form-group">
-                    <label>ระยะห่างจากจุดเริ่มต้น</label>
-                    <select id="travel-distance">
-                        <option value="5">ใกล้มาก (ภายใน 5 กม.)</option>
-                        <option value="15" selected>ปานกลาง (ภายใน 15 กม.)</option>
-                        <option value="30">ไกล (ภายใน 30 กม.)</option>
-                        <option value="unlimited">ไม่จำกัด (ทั้งจังหวัด)</option>
-                    </select>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                        <label style="margin-bottom: 0;">รัศมีจากจุดเริ่มต้น</label>
+                        <span id="travel-distance-val" style="font-size: 0.88rem; font-weight: 600; color: var(--primary-color); background: var(--primary-light); padding: 0.15rem 0.6rem; border-radius: 9999px; white-space: nowrap; flex-shrink: 0;">ไม่จำกัด</span>
+                    </div>
+                    <input type="range" id="travel-distance" min="5" max="50" step="1" value="50" style="width: 100%; cursor: pointer;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.3rem;">
+                        <span>5 กม.</span>
+                        <span>15 กม.</span>
+                        <span>30 กม.</span>
+                        <span>ไม่จำกัด</span>
+                    </div>
+                    <small id="radius-lock-info" style="display: block; font-size: 0.78rem; color: var(--text-muted); margin-top: 4px;">
+                        <i class="fa-solid fa-circle-info"></i> รัศมีที่ต้องการท่องเที่ยว
+                    </small>
                 </div>
 
                 <div class="form-group">
@@ -204,6 +255,10 @@
                 <div class="plan-tab" onclick="switchPlan(2)">แผนที่ 3</div>
             </div>
 
+            <button type="button" class="btn-start-navigation" id="start-nav-btn" onclick="startTripNavigation()" style="width:100%; margin-bottom:0.75rem;">
+                <i class="fa-solid fa-location-arrow"></i> ระบบนำทาง
+            </button>
+
             <div id="start-point-display" style="margin-bottom: 1rem; color: var(--secondary-color); font-weight: bold; background: rgba(239, 246, 255, 0.5); padding: 1rem; border-radius: var(--radius-md); border: 1px solid #BFDBFE; display: flex; align-items: center; gap: 1rem;">
                 <div style="background: white; border: 2px solid #BFDBFE; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; color: #2563EB; font-weight: bold; font-size: 0.85rem;" id="start-time-badge">09:00</div>
                 <div>
@@ -216,9 +271,11 @@
                 <!-- Populated by JS -->
             </div>
 
-            <div class="result-actions">
-                <button class="btn btn-outline" onclick="openAddPlaceModal()" style="justify-content: center;"><i class="fa-solid fa-plus"></i> เพิ่มสถานที่</button>
-                <button class="btn btn-primary" onclick="recalculateRoute()" style="justify-content: center;"><i class="fa-solid fa-rotate"></i> คำนวณเส้นทางใหม่</button>
+            <div class="result-actions" style="flex-direction: column; gap: 0.6rem;">
+                <div style="display: flex; gap: 0.5rem; width: 100%;">
+                    <button class="btn btn-outline" onclick="openAddPlaceModal()" style="flex: 1; justify-content: center;"><i class="fa-solid fa-plus"></i> เพิ่มสถานที่</button>
+                    <button class="btn btn-primary" onclick="recalculateRoute()" style="flex: 1; justify-content: center;"><i class="fa-solid fa-rotate"></i> คำนวณใหม่</button>
+                </div>
             </div>
         </div>
     </div>
@@ -236,6 +293,8 @@
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet Rotate — true map rotation + pinch-rotate gesture -->
+    <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
     <!-- Leaflet Draw JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
     <!-- Leaflet Routing Machine -->
@@ -244,8 +303,9 @@
     
     <!-- Sortable JS for drag & drop -->
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
-    <script src="script.js"></script>
+    <script src="../trip-navigation.js?v=2.2"></script>
+    <script src="script.js?v=2.3"></script>
     <script src="../scroll-animate.js"></script>
-    <script src="../mobile-nav.js"></script>
+    <script src="../mobile-nav.js?v=3"></script>
 </body>
 </html>

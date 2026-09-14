@@ -8,6 +8,12 @@ let currentItinerary = [];
 let sortableList;
 let startCoords = {lat: 16.4322, lng: 102.8236};
 let endCoords = null;
+let lastRouteBounds = null; // เก็บ bounds ล่าสุดสำหรับ fit บน mobile
+
+// Realtime user location
+let userLocationWatchId = null;
+let userLiveMarker = null;     // Leaflet marker แสดงตำแหน่ง GPS
+let userIsUsingGPS = false;    // true = ใช้ตำแหน่งปัจจุบัน
 
 // Mobile view switcher logic
 window.switchMobileView = function(view) {
@@ -21,12 +27,21 @@ window.switchMobileView = function(view) {
     if (targetBtn) targetBtn.classList.add('active');
 
     if (view === 'map' && map) {
-        setTimeout(() => map.invalidateSize(), 150);
+        // รอให้ DOM แสดง map ก่อนแล้วค่อย resize และ fit bounds (เฉพาะตอนไม่ได้กำลังนำทาง)
+        setTimeout(() => {
+            map.invalidateSize();
+            const isNavigating = typeof TripNavigator !== 'undefined' && TripNavigator.getState && TripNavigator.getState().isActive;
+            if (!isNavigating && lastRouteBounds && lastRouteBounds.isValid()) {
+                map.fitBounds(lastRouteBounds, { padding: [60, 60], animate: true });
+            }
+        }, 200);
     }
 };
 
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
+    initUserLocation(); // Auto-detect GPS เมื่อโหลดหน้า
+    initDistrictSelector(); // เริ่มต้นตัวเลือกอำเภอ
 
     // Populate time dropdowns (24h format)
     const startHourSelect = document.getElementById('start-hour');
@@ -81,25 +96,33 @@ document.addEventListener('DOMContentLoaded', () => {
     const startInput = document.getElementById('start-location');
     const autocompleteList = document.getElementById('autocomplete-list');
 
-    startInput.addEventListener('input', function() {
-        const val = this.value;
+    function renderStartAutocomplete(val = '') {
+        if (!autocompleteList) return;
         autocompleteList.innerHTML = '';
-        if (!val) {
-            autocompleteList.style.display = 'none';
-            return;
-        }
-        
-        const allPlaces = getPlaces();
-        const matches = allPlaces.filter(p => p.name.toLowerCase().includes(val.toLowerCase()));
-        
+        const allPlaces = typeof getPlaces === 'function' ? getPlaces() : [];
+        const query = (val || '').trim().toLowerCase();
+
+        // If query is empty or starts with GPS indicator, show all places
+        const matches = (query && !query.startsWith('📍'))
+            ? allPlaces.filter(p => (p.name && p.name.toLowerCase().includes(query)) || (p.category && p.category.toLowerCase().includes(query)))
+            : allPlaces;
+
         if (matches.length > 0) {
             autocompleteList.style.display = 'block';
             matches.forEach(place => {
                 const div = document.createElement('div');
-                div.innerHTML = `<strong>${place.name}</strong> <span style="font-size:0.8rem; color:var(--text-muted); margin-left:0.5rem;">(${place.category})</span>`;
-                div.addEventListener('click', function() {
+                div.innerHTML = `<i class="fa-solid fa-location-dot" style="color: var(--primary-color); margin-right: 0.5rem; flex-shrink: 0;"></i><span style="font-weight: 500;">${place.name}</span> <span style="font-size:0.8rem; color:var(--text-muted); margin-left:0.4rem; white-space: nowrap;">(${place.category || 'สถานที่'})</span>`;
+                div.addEventListener('mousedown', function(e) {
+                    e.preventDefault();
+                });
+                div.addEventListener('click', function(e) {
+                    e.stopPropagation();
                     startInput.value = place.name;
+                    startInput.dataset.manuallySet = '1'; // mark manual
                     startCoords = { lat: place.lat, lng: place.lng };
+                    userIsUsingGPS = false;
+                    if (userLiveMarker && map) map.removeLayer(userLiveMarker);
+                    userLiveMarker = null;
                     autocompleteList.style.display = 'none';
                     updateMap();
                     map.setView([place.lat, place.lng], 14);
@@ -107,32 +130,66 @@ document.addEventListener('DOMContentLoaded', () => {
                 autocompleteList.appendChild(div);
             });
         } else {
-            autocompleteList.style.display = 'none';
+            autocompleteList.style.display = 'block';
+            const emptyDiv = document.createElement('div');
+            emptyDiv.style.color = 'var(--text-muted)';
+            emptyDiv.style.cursor = 'default';
+            emptyDiv.style.justifyContent = 'center';
+            emptyDiv.textContent = 'ไม่พบสถานที่ที่ตรงกัน';
+            autocompleteList.appendChild(emptyDiv);
         }
-    });
+    }
+
+    if (startInput) {
+        startInput.addEventListener('input', function() {
+            const val = this.value;
+            if (val) {
+                this.dataset.manuallySet = '1';
+                if (userIsUsingGPS) {
+                    userIsUsingGPS = false;
+                    if (userLiveMarker && map) map.removeLayer(userLiveMarker);
+                    userLiveMarker = null;
+                }
+            } else {
+                delete this.dataset.manuallySet;
+            }
+            renderStartAutocomplete(val);
+        });
+
+        // เมื่อคลิกหรือ focus ให้แสดงรายชื่อสถานที่ทั้งหมดทันทีโดยไม่ต้องพิมพ์
+        startInput.addEventListener('focus', function() {
+            renderStartAutocomplete('');
+        });
+
+        startInput.addEventListener('click', function() {
+            renderStartAutocomplete('');
+        });
+    }
 
     // End Location Autocomplete
     const endInput = document.getElementById('end-location');
     const endAutocompleteList = document.getElementById('end-autocomplete-list');
 
-    endInput.addEventListener('input', function() {
-        const val = this.value;
+    function renderEndAutocomplete(val = '') {
+        if (!endAutocompleteList) return;
         endAutocompleteList.innerHTML = '';
-        if (!val) {
-            endAutocompleteList.style.display = 'none';
-            endCoords = null;
-            return;
-        }
-        
-        const allPlaces = getPlaces();
-        const matches = allPlaces.filter(p => p.name.toLowerCase().includes(val.toLowerCase()));
-        
+        const allPlaces = typeof getPlaces === 'function' ? getPlaces() : [];
+        const query = (val || '').trim().toLowerCase();
+
+        const matches = query
+            ? allPlaces.filter(p => (p.name && p.name.toLowerCase().includes(query)) || (p.category && p.category.toLowerCase().includes(query)))
+            : allPlaces;
+
         if (matches.length > 0) {
             endAutocompleteList.style.display = 'block';
             matches.forEach(place => {
                 const div = document.createElement('div');
-                div.innerHTML = `<strong>${place.name}</strong> <span style="font-size:0.8rem; color:var(--text-muted); margin-left:0.5rem;">(${place.category})</span>`;
-                div.addEventListener('click', function() {
+                div.innerHTML = `<i class="fa-solid fa-location-dot" style="color: var(--primary-color); margin-right: 0.5rem; flex-shrink: 0;"></i><span style="font-weight: 500;">${place.name}</span> <span style="font-size:0.8rem; color:var(--text-muted); margin-left:0.4rem; white-space: nowrap;">(${place.category || 'สถานที่'})</span>`;
+                div.addEventListener('mousedown', function(e) {
+                    e.preventDefault();
+                });
+                div.addEventListener('click', function(e) {
+                    e.stopPropagation();
                     endInput.value = place.name;
                     endCoords = { lat: place.lat, lng: place.lng };
                     endAutocompleteList.style.display = 'none';
@@ -142,19 +199,125 @@ document.addEventListener('DOMContentLoaded', () => {
                 endAutocompleteList.appendChild(div);
             });
         } else {
+            endAutocompleteList.style.display = 'block';
+            const emptyDiv = document.createElement('div');
+            emptyDiv.style.color = 'var(--text-muted)';
+            emptyDiv.style.cursor = 'default';
+            emptyDiv.style.justifyContent = 'center';
+            emptyDiv.textContent = 'ไม่พบสถานที่ที่ตรงกัน';
+            endAutocompleteList.appendChild(emptyDiv);
+        }
+    }
+
+    if (endInput) {
+        endInput.addEventListener('input', function() {
+            if (!this.value) {
+                endCoords = null;
+            }
+            renderEndAutocomplete(this.value);
+        });
+
+        // เมื่อคลิกหรือ focus ให้แสดงรายชื่อสถานที่ทั้งหมดทันทีโดยไม่ต้องพิมพ์
+        endInput.addEventListener('focus', function() {
+            renderEndAutocomplete('');
+        });
+
+        endInput.addEventListener('click', function() {
+            renderEndAutocomplete('');
+        });
+    }
+
+    document.addEventListener('click', function(e) {
+        if (startInput && autocompleteList && !startInput.contains(e.target) && !autocompleteList.contains(e.target)) {
+            autocompleteList.style.display = 'none';
+        }
+        if (endInput && endAutocompleteList && !endInput.contains(e.target) && !endAutocompleteList.contains(e.target)) {
             endAutocompleteList.style.display = 'none';
         }
     });
 
-    document.addEventListener('click', function(e) {
-        if (e.target !== startInput) {
-            autocompleteList.style.display = 'none';
+    // Travel distance range slider listener
+    const travelDistInput = document.getElementById('travel-distance');
+    const travelDistVal = document.getElementById('travel-distance-val');
+
+    function updateTravelDistanceUI(shouldFitBounds = false) {
+        if (!travelDistInput || !travelDistVal) return;
+        const val = parseInt(travelDistInput.value);
+        if (val >= 50) {
+            travelDistVal.textContent = 'ไม่จำกัด';
+        } else {
+            travelDistVal.textContent = `${val} กม.`;
+            // เมื่อเลือกใช้งานระบบรัศมี (< 50 กม.) ให้ล้าง/รีเซ็ตระบบอำเภอเป็น "ทุกอำเภอ"
+            if (typeof isAllDistricts !== 'undefined' && !isAllDistricts && typeof resetDistrictsToAll === 'function') {
+                resetDistrictsToAll();
+            }
         }
-        if (e.target !== endInput) {
-            endAutocompleteList.style.display = 'none';
-        }
-    });
+        updateRadiusCircle(shouldFitBounds);
+    }
+
+    if (travelDistInput) {
+        travelDistInput.addEventListener('input', function() {
+            updateTravelDistanceUI(false);
+        });
+        travelDistInput.addEventListener('change', function() {
+            updateTravelDistanceUI(true);
+        });
+        setTimeout(() => updateTravelDistanceUI(false), 300);
+    }
 });
+
+let radiusCircleLayer = null;
+
+function updateRadiusCircle(shouldFitBounds = false) {
+    if (!map || typeof L === 'undefined') return;
+    const distInput = document.getElementById('travel-distance');
+    if (!distInput) return;
+    const val = parseInt(distInput.value);
+
+    // If unlimited (>= 50) or custom polygon drawn, or no startCoords, remove layer
+    if (val >= 50 || selectedPolygon || !startCoords) {
+        if (radiusCircleLayer) {
+            map.removeLayer(radiusCircleLayer);
+            radiusCircleLayer = null;
+        }
+        return;
+    }
+
+    const radiusMeters = val * 1000;
+    const center = [startCoords.lat, startCoords.lng];
+
+    if (radiusCircleLayer && map.hasLayer(radiusCircleLayer)) {
+        radiusCircleLayer.setLatLng(center);
+        radiusCircleLayer.setRadius(radiusMeters);
+        if (radiusCircleLayer.getTooltip()) {
+            radiusCircleLayer.setTooltipContent(`📍 รัศมี ${val} กม.`);
+        }
+    } else {
+        if (radiusCircleLayer) {
+            map.removeLayer(radiusCircleLayer);
+        }
+        radiusCircleLayer = L.circle(center, {
+            radius: radiusMeters,
+            color: '#E05A47',
+            fillColor: '#E05A47',
+            fillOpacity: 0.16,
+            weight: 2.5,
+            dashArray: '8, 6'
+        }).addTo(map);
+
+        radiusCircleLayer.bindTooltip(`📍 รัศมี ${val} กม.`, {
+            permanent: true,
+            direction: 'top',
+            className: 'radius-tooltip'
+        }).openTooltip();
+    }
+
+    radiusCircleLayer.bringToBack();
+
+    if (shouldFitBounds && radiusCircleLayer && map) {
+        map.fitBounds(radiusCircleLayer.getBounds(), { padding: [50, 50], maxZoom: 14 });
+    }
+}
 
 window.clearEndLocation = function() {
     document.getElementById('end-location').value = '';
@@ -174,6 +337,349 @@ window.useStartLocationAsEnd = function() {
         alert("กรุณาระบุจุดเริ่มต้นก่อนครับ");
     }
 };
+
+// ===== District (Amphoe) State & Polygon Management =====
+let districtBaseLayer = null;
+let districtPolygonLayer = null;
+let isAllDistricts = true;
+let selectedDistrictNames = new Set();
+
+function isPointInGeoJSONRing(lat, lng, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        // GeoJSON coordinates are [lng, lat]
+        const xi = ring[i][1], yi = ring[i][0];
+        const xj = ring[j][1], yj = ring[j][0];
+        const intersect = ((yi > lng) !== (yj > lng)) && (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+function isPointInDistrictFeature(lat, lng, feature) {
+    if (!feature || !feature.geometry) return false;
+    const geom = feature.geometry;
+    if (geom.type === 'Polygon') {
+        if (isPointInGeoJSONRing(lat, lng, geom.coordinates[0])) {
+            for (let h = 1; h < geom.coordinates.length; h++) {
+                if (isPointInGeoJSONRing(lat, lng, geom.coordinates[h])) return false;
+            }
+            return true;
+        }
+        return false;
+    } else if (geom.type === 'MultiPolygon') {
+        for (let p = 0; p < geom.coordinates.length; p++) {
+            const poly = geom.coordinates[p];
+            if (isPointInGeoJSONRing(lat, lng, poly[0])) {
+                let inHole = false;
+                for (let h = 1; h < poly.length; h++) {
+                    if (isPointInGeoJSONRing(lat, lng, poly[h])) {
+                        inHole = true;
+                        break;
+                    }
+                }
+                if (!inHole) return true;
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
+function isPointInSelectedDistricts(lat, lng) {
+    if (isAllDistricts || selectedDistrictNames.size === 0) {
+        return true;
+    }
+    if (!window.KHONKAEN_DISTRICTS_GEOJSON || !window.KHONKAEN_DISTRICTS_GEOJSON.features) {
+        return true;
+    }
+    const features = window.KHONKAEN_DISTRICTS_GEOJSON.features;
+    for (let i = 0; i < features.length; i++) {
+        const f = features[i];
+        if (selectedDistrictNames.has(f.properties.amp_th)) {
+            if (isPointInDistrictFeature(lat, lng, f)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+function initDistrictBaseMap() {
+    if (!map || !window.KHONKAEN_DISTRICTS_GEOJSON) return;
+    if (districtBaseLayer) return;
+
+    districtBaseLayer = L.geoJSON(window.KHONKAEN_DISTRICTS_GEOJSON, {
+        interactive: false,
+        style: function () {
+            return {
+                color: '#94A3B8',
+                weight: 1,
+                opacity: 0.45,
+                fillColor: '#94A3B8',
+                fillOpacity: 0.02
+            };
+        }
+    }).addTo(map);
+}
+
+function updateDistrictPolygons() {
+    if (!map) return;
+    if (!districtPolygonLayer) {
+        districtPolygonLayer = L.featureGroup().addTo(map);
+    }
+    districtPolygonLayer.clearLayers();
+
+    if (!window.KHONKAEN_DISTRICTS_GEOJSON || !window.KHONKAEN_DISTRICTS_GEOJSON.features) return;
+    const features = window.KHONKAEN_DISTRICTS_GEOJSON.features;
+
+    if (isAllDistricts || selectedDistrictNames.size === 0) {
+        return;
+    }
+
+    const selectedFeatures = features.filter(f => selectedDistrictNames.has(f.properties.amp_th));
+    if (selectedFeatures.length === 0) return;
+
+    const geoLayer = L.geoJSON({
+        type: 'FeatureCollection',
+        features: selectedFeatures
+    }, {
+        interactive: false,
+        style: function () {
+            return {
+                color: '#BA5D3E',
+                weight: 2.5,
+                opacity: 0.95,
+                fillColor: '#BA5D3E',
+                fillOpacity: 0.20,
+                dashArray: '5, 5'
+            };
+        }
+    });
+
+    districtPolygonLayer.addLayer(geoLayer);
+
+    try {
+        const bounds = geoLayer.getBounds();
+        if (bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13, animate: true });
+        }
+    } catch (e) {
+        console.error('Fit district bounds error:', e);
+    }
+}
+
+function toggleDistrictSelection(name) {
+    if (isAllDistricts) {
+        isAllDistricts = false;
+        selectedDistrictNames = new Set([name]);
+    } else {
+        if (selectedDistrictNames.has(name)) {
+            selectedDistrictNames.delete(name);
+            if (selectedDistrictNames.size === 0) {
+                isAllDistricts = true;
+            }
+        } else {
+            selectedDistrictNames.add(name);
+            const total = (window.KHONKAEN_DISTRICTS_GEOJSON && window.KHONKAEN_DISTRICTS_GEOJSON.features)
+                ? window.KHONKAEN_DISTRICTS_GEOJSON.features.length
+                : 26;
+            if (selectedDistrictNames.size >= total) {
+                isAllDistricts = true;
+                selectedDistrictNames.clear();
+            }
+        }
+    }
+
+    // เมื่อเลือกใช้อำเภอเฉพาะ ให้ล้าง/รีเซ็ตรัศมีเป็น "ไม่จำกัด" และลบ Buffer ออกจากแผนที่
+    if (!isAllDistricts && selectedDistrictNames.size > 0) {
+        resetRadiusToUnlimited();
+    }
+
+    syncDistrictUI();
+    updateDistrictPolygons();
+}
+
+function resetRadiusToUnlimited() {
+    const travelDistInput = document.getElementById('travel-distance');
+    const travelDistVal = document.getElementById('travel-distance-val');
+    if (travelDistInput) {
+        travelDistInput.value = 50;
+        if (travelDistVal) {
+            travelDistVal.textContent = 'ไม่จำกัด';
+        }
+        updateRadiusCircle(false);
+    }
+}
+
+function resetDistrictsToAll() {
+    isAllDistricts = true;
+    selectedDistrictNames.clear();
+    syncDistrictUI();
+    updateDistrictPolygons();
+}
+
+function selectAllDistricts() {
+    resetDistrictsToAll();
+}
+
+function clearAllDistricts() {
+    resetDistrictsToAll();
+}
+
+function syncDistrictUI() {
+    const checkAll = document.getElementById('checkAllDistricts');
+    const allOption = document.querySelector('.all-districts-option');
+    if (checkAll) checkAll.checked = isAllDistricts;
+    if (allOption) allOption.classList.toggle('selected', isAllDistricts);
+
+    const checkboxes = document.querySelectorAll('.district-checkbox');
+    checkboxes.forEach(cb => {
+        const checked = isAllDistricts || selectedDistrictNames.has(cb.value);
+        cb.checked = checked;
+        const item = cb.closest('.district-option-item');
+        if (item) {
+            item.classList.toggle('selected', !isAllDistricts && selectedDistrictNames.has(cb.value));
+        }
+    });
+
+    const badge = document.getElementById('district-count-badge');
+    const btnText = document.getElementById('districtBtnText');
+
+    if (isAllDistricts || selectedDistrictNames.size === 0) {
+        if (badge) {
+            badge.textContent = 'ทุกอำเภอ (26)';
+            badge.className = 'district-badge-all';
+        }
+        if (btnText) {
+            btnText.innerHTML = '<i class="fa-solid fa-earth-asia" style="color: var(--primary-color); margin-right: 6px;"></i>ทุกอำเภอ (ทั้งจังหวัดขอนแก่น)';
+        }
+    } else {
+        const count = selectedDistrictNames.size;
+        const names = Array.from(selectedDistrictNames);
+        if (badge) {
+            badge.textContent = `${count} อำเภอ`;
+            badge.className = 'district-badge-selected';
+        }
+        if (btnText) {
+            if (count === 1) {
+                btnText.innerHTML = `<i class="fa-solid fa-location-dot" style="color: var(--primary-color); margin-right: 6px;"></i>อำเภอ${names[0]}`;
+            } else if (count === 2) {
+                btnText.innerHTML = `<i class="fa-solid fa-location-dot" style="color: var(--primary-color); margin-right: 6px;"></i>อ.${names[0]}, อ.${names[1]}`;
+            } else {
+                btnText.innerHTML = `<i class="fa-solid fa-location-dot" style="color: var(--primary-color); margin-right: 6px;"></i>อ.${names[0]}, อ.${names[1]} (+${count - 2})`;
+            }
+        }
+    }
+}
+
+function renderDistrictOptions() {
+    const listEl = document.getElementById('districtOptionsList');
+    if (!listEl) return;
+
+    if (!window.KHONKAEN_DISTRICTS_GEOJSON || !window.KHONKAEN_DISTRICTS_GEOJSON.features) {
+        listEl.innerHTML = '<div style="padding: 1rem; color: #64748B; text-align: center;">กำลังโหลดข้อมูลอำเภอ...</div>';
+        return;
+    }
+
+    const features = window.KHONKAEN_DISTRICTS_GEOJSON.features;
+    const sortedDistricts = features.map(f => f.properties.amp_th).sort((a, b) => a.localeCompare(b, 'th'));
+
+    let html = `
+        <label class="district-option-item all-districts-option ${isAllDistricts ? 'selected' : ''}">
+            <input type="checkbox" id="checkAllDistricts" ${isAllDistricts ? 'checked' : ''}>
+            <span class="district-name"><strong>ทุกอำเภอ (ทั้งจังหวัดขอนแก่น)</strong></span>
+            <span class="district-tag">${sortedDistricts.length} อำเภอ</span>
+        </label>
+        <div style="height: 1px; background: #E2E8F0; margin: 4px 0;"></div>
+    `;
+
+    sortedDistricts.forEach(dName => {
+        const isSelected = !isAllDistricts && selectedDistrictNames.has(dName);
+        html += `
+            <label class="district-option-item ${isSelected ? 'selected' : ''}" data-name="${dName}">
+                <input type="checkbox" class="district-checkbox" value="${dName}" ${isAllDistricts || isSelected ? 'checked' : ''}>
+                <span class="district-name">อำเภอ${dName}</span>
+            </label>
+        `;
+    });
+
+    listEl.innerHTML = html;
+
+    // Attach checkbox events
+    const checkAll = document.getElementById('checkAllDistricts');
+    if (checkAll) {
+        checkAll.addEventListener('change', () => {
+            selectAllDistricts();
+        });
+    }
+
+    const checkboxes = listEl.querySelectorAll('.district-checkbox');
+    checkboxes.forEach(cb => {
+        cb.addEventListener('change', () => {
+            toggleDistrictSelection(cb.value);
+        });
+    });
+}
+
+function initDistrictSelector() {
+    const btn = document.getElementById('districtDropdownBtn');
+    const wrapper = document.querySelector('.district-dropdown-wrapper');
+    const menu = document.getElementById('districtDropdownMenu');
+    const searchInput = document.getElementById('districtSearchInput');
+    const listEl = document.getElementById('districtOptionsList');
+    const btnSelectAll = document.getElementById('btnSelectAllDistricts');
+    const btnClear = document.getElementById('btnClearDistricts');
+
+    if (!btn || !wrapper || !menu || !listEl) return;
+
+    btn.addEventListener('click', (e) => {
+        if (btn.disabled) return;
+        e.stopPropagation();
+        const isOpen = wrapper.classList.toggle('open');
+        btn.setAttribute('aria-expanded', isOpen);
+        if (isOpen && searchInput) {
+            searchInput.focus();
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!wrapper.contains(e.target)) {
+            wrapper.classList.remove('open');
+            btn.setAttribute('aria-expanded', 'false');
+        }
+    });
+
+    menu.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+
+    renderDistrictOptions();
+
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.trim().toLowerCase();
+            const items = listEl.querySelectorAll('.district-option-item:not(.all-districts-option)');
+            items.forEach(item => {
+                const name = (item.getAttribute('data-name') || '').toLowerCase();
+                const visible = name.includes(query);
+                item.style.display = visible ? 'flex' : 'none';
+            });
+        });
+    }
+
+    if (btnSelectAll) {
+        btnSelectAll.addEventListener('click', () => {
+            selectAllDistricts();
+        });
+    }
+
+    if (btnClear) {
+        btnClear.addEventListener('click', () => {
+            clearAllDistricts();
+        });
+    }
+}
 
 let drawnItems;
 let selectedPolygon = null;
@@ -197,7 +703,12 @@ function isPointInPolygon(lat, lng, polygon) {
 
 function initMap() {
     // Center at Khon Kaen
-    map = L.map('map').setView([16.4322, 102.8236], 12);
+    map = L.map('map', {
+        rotate: true,        // เปิด true tile rotation engine
+        bearing: 0,          // เริ่มที่ north-up
+        touchRotate: true,   // pinch-rotate gesture บน touch
+    }).setView([16.4322, 102.8236], 12);
+
     
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -207,6 +718,10 @@ function initMap() {
     // Initialize Leaflet Draw
     drawnItems = new L.FeatureGroup();
     map.addLayer(drawnItems);
+
+    // Initialize District Polygon Layers
+    districtPolygonLayer = L.featureGroup().addTo(map);
+    initDistrictBaseMap();
     
     const drawControl = new L.Control.Draw({
         edit: { featureGroup: drawnItems },
@@ -230,40 +745,297 @@ function initMap() {
         const layer = e.layer;
         drawnItems.addLayer(layer);
         selectedPolygon = layer.getLatLngs()[0];
-        document.getElementById('travel-distance').disabled = true;
+        setPolygonLockState(true);
+        updateRadiusCircle();
     });
     
     map.on(L.Draw.Event.DELETED, function () {
         selectedPolygon = null;
-        document.getElementById('travel-distance').disabled = false;
+        setPolygonLockState(false);
+        updateRadiusCircle();
     });
     
     map.on(L.Draw.Event.EDITED, function (e) {
         e.layers.eachLayer(function (layer) {
             selectedPolygon = layer.getLatLngs()[0];
         });
-        document.getElementById('travel-distance').disabled = true;
+        setPolygonLockState(true);
+        updateRadiusCircle();
     });
+
+    setTimeout(() => {
+        updateRadiusCircle(false);
+    }, 200);
 }
 
-function useCurrentLocation() {
+function setPolygonLockState(isLocked) {
+    const travelDistEl = document.getElementById('travel-distance');
+    const travelDistVal = document.getElementById('travel-distance-val');
+    const radiusInfo = document.getElementById('radius-lock-info');
+
+    if (travelDistEl) travelDistEl.disabled = isLocked;
+
+    if (radiusInfo) {
+        if (isLocked) {
+            radiusInfo.innerHTML = '<i class="fa-solid fa-lock" style="color: #DC2626;"></i> ล็อคเนื่องจากใช้พื้นที่วาดโพลิกอนบนแผนที่';
+            radiusInfo.style.color = '#DC2626';
+            radiusInfo.style.fontWeight = '500';
+        } else {
+            radiusInfo.innerHTML = '<i class="fa-solid fa-circle-info"></i> รัศมีที่ต้องการท่องเที่ยว';
+            radiusInfo.style.color = 'var(--text-muted)';
+            radiusInfo.style.fontWeight = 'normal';
+        }
+    }
+
+    if (travelDistVal) {
+        if (isLocked) {
+            travelDistVal.innerHTML = '<i class="fa-solid fa-draw-polygon" style="margin-right: 4px;"></i>ล็อคตามโพลิกอน';
+            travelDistVal.style.background = '#FEE2E2';
+            travelDistVal.style.color = '#DC2626';
+            travelDistVal.style.borderColor = '#FECACA';
+        } else {
+            travelDistVal.removeAttribute('style');
+            travelDistVal.style.cssText = 'font-size: 0.88rem; font-weight: 600; color: var(--primary-color); background: var(--primary-light); padding: 0.15rem 0.6rem; border-radius: 9999px; white-space: nowrap; flex-shrink: 0;';
+            const val = travelDistEl ? parseInt(travelDistEl.value) : 50;
+            travelDistVal.textContent = val >= 50 ? 'ไม่จำกัด' : `${val} กม.`;
+        }
+    }
+
+    const districtBtn = document.getElementById('districtDropdownBtn');
+    const districtWrapper = document.querySelector('.district-dropdown-wrapper');
+    const districtInfo = document.getElementById('district-lock-info');
+    const badge = document.getElementById('district-count-badge');
+
+    if (districtBtn) {
+        districtBtn.disabled = isLocked;
+        if (isLocked) {
+            districtBtn.title = "ล็อคเนื่องจากมีการวาดพื้นที่โพลิกอนบนแผนที่";
+            if (districtWrapper) districtWrapper.classList.remove('open');
+        } else {
+            districtBtn.removeAttribute('title');
+        }
+    }
+
+    if (districtInfo) {
+        if (isLocked) {
+            districtInfo.innerHTML = '<i class="fa-solid fa-lock" style="color: #DC2626;"></i> ล็อคเนื่องจากใช้พื้นที่วาดโพลิกอนบนแผนที่';
+            districtInfo.style.color = '#DC2626';
+            districtInfo.style.fontWeight = '500';
+        } else {
+            districtInfo.innerHTML = '<i class="fa-solid fa-circle-info"></i> สามารถเลือกได้หลายอำเภอตามที่ต้องการ';
+            districtInfo.style.color = 'var(--text-muted)';
+            districtInfo.style.fontWeight = 'normal';
+        }
+    }
+
+    if (isLocked) {
+        if (badge) {
+            badge.innerHTML = '<i class="fa-solid fa-draw-polygon" style="margin-right: 4px;"></i>ล็อคตามโพลิกอน';
+            badge.className = 'district-badge-selected';
+            badge.style.background = '#FEE2E2';
+            badge.style.color = '#DC2626';
+            badge.style.borderColor = '#FECACA';
+        }
+    } else {
+        if (badge) {
+            badge.removeAttribute('style');
+        }
+        syncDistrictUI();
+    }
+}
+
+/**
+ * เริ่มติดตาม GPS ของผู้ใช้แบบ realtime และเซ็ตเป็นจุดเริ่มต้น
+ */
+let lastKnownGPS = null;
+
+async function fetchIPLocationFallback() {
+    if (typeof GEOAPIFY_API_KEY !== 'undefined' && GEOAPIFY_API_KEY) {
+        try {
+            const res = await fetch(`https://api.geoapify.com/v1/ipinfo?apiKey=${GEOAPIFY_API_KEY}`, { signal: AbortSignal.timeout(6000) });
+            if (res.ok) {
+                const d = await res.json();
+                if (d.location?.latitude && d.location?.longitude) {
+                    return {
+                        lat: d.location.latitude,
+                        lng: d.location.longitude,
+                        label: d.city?.name || 'ขอนแก่น'
+                    };
+                }
+            }
+        } catch (e) {
+            console.warn('IP Location fallback error:', e.message);
+        }
+    }
+    return null;
+}
+
+function resolveUserLocation(onSuccess, onError) {
+    // 1. ถ้ามีตำแหน่งล่าสุดที่เพิ่งดึงได้ ใช้ทันที
+    if (lastKnownGPS) {
+        onSuccess(lastKnownGPS.lat, lastKnownGPS.lng, false);
+        return;
+    }
+
+    if (!navigator.geolocation) {
+        fetchIPLocationFallback().then(loc => {
+            if (loc) {
+                lastKnownGPS = { lat: loc.lat, lng: loc.lng };
+                onSuccess(loc.lat, loc.lng, true);
+            } else {
+                onError && onError('เบราว์เซอร์ของคุณไม่รองรับการระบุตำแหน่ง');
+            }
+        });
+        return;
+    }
+
+    // 2. ลองดึงตำแหน่งแบบ High Accuracy ก่อน (เหมาะกับมือถือ)
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            lastKnownGPS = { lat, lng };
+            onSuccess(lat, lng, false);
+        },
+        (err) => {
+            console.warn('High accuracy GPS error:', err.code, err.message);
+            // 3. ถ้า High Accuracy ไม่ได้ (เช่น timeout บนคอม/ไม่มีชิป GPS) ให้ลอง Standard Accuracy (Wi-Fi/เครือข่าย)
+            navigator.geolocation.getCurrentPosition(
+                (pos2) => {
+                    const lat = pos2.coords.latitude;
+                    const lng = pos2.coords.longitude;
+                    lastKnownGPS = { lat, lng };
+                    onSuccess(lat, lng, false);
+                },
+                async (err2) => {
+                    console.warn('Standard accuracy GPS error:', err2.code, err2.message);
+                    // 4. สำรองสุดท้าย: ดึงพิกัดจาก IP ผ่าน Geoapify
+                    const loc = await fetchIPLocationFallback();
+                    if (loc) {
+                        lastKnownGPS = { lat: loc.lat, lng: loc.lng };
+                        onSuccess(loc.lat, loc.lng, true);
+                    } else {
+                        let msg = 'ไม่สามารถดึงตำแหน่งปัจจุบันได้';
+                        if (err.code === 1 || err2.code === 1) {
+                            msg = 'กรุณาอนุญาตให้เบราว์เซอร์เข้าถึงตำแหน่ง (Location Permission) หรือเลือกสถานที่เริ่มต้นจากช่องค้นหา';
+                        }
+                        onError && onError(msg);
+                    }
+                },
+                { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+            );
+        },
+        { enableHighAccuracy: true, timeout: 6000, maximumAge: 30000 }
+    );
+}
+
+/**
+ * เริ่มติดตาม GPS ของผู้ใช้แบบ realtime และเซ็ตเป็นจุดเริ่มต้น
+ */
+function initUserLocation() {
+    resolveUserLocation(
+        (lat, lng) => {
+            startCoords = { lat, lng };
+            userIsUsingGPS = true;
+
+            const inputEl = document.getElementById('start-location');
+            if (inputEl && !inputEl.dataset.manuallySet) {
+                inputEl.value = `📍 ตำแหน่งปัจจุบัน (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+            }
+
+            placeUserGPSMarker(lat, lng);
+            if (map) map.setView([lat, lng], 14);
+            updateRadiusCircle(false);
+        },
+        (err) => {
+            console.warn('GPS initial error:', err);
+        }
+    );
+
+    // Watch ต่อเนื่อง (realtime)
     if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
+        if (userLocationWatchId !== null) {
+            navigator.geolocation.clearWatch(userLocationWatchId);
+        }
+        userLocationWatchId = navigator.geolocation.watchPosition(
             (position) => {
                 const lat = position.coords.latitude;
                 const lng = position.coords.longitude;
-                document.getElementById('start-location').value = `ตำแหน่งปัจจุบัน (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
-                startCoords = { lat: lat, lng: lng };
-                updateMap();
-                map.setView([lat, lng], 14);
+                lastKnownGPS = { lat, lng };
+
+                if (userIsUsingGPS) {
+                    startCoords = { lat, lng };
+
+                    const inputEl = document.getElementById('start-location');
+                    if (inputEl && !inputEl.dataset.manuallySet) {
+                        inputEl.value = `📍 ตำแหน่งปัจจุบัน (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+                    }
+
+                    placeUserGPSMarker(lat, lng);
+                    updateRadiusCircle(false);
+                }
             },
-            () => {
-                alert('ไม่สามารถดึงตำแหน่งปัจจุบันได้');
-            }
+            (err) => {
+                console.warn('GPS watch error:', err.message);
+            },
+            { enableHighAccuracy: false, maximumAge: 10000, timeout: 20000 }
         );
-    } else {
-        alert('เบราว์เซอร์ของคุณไม่รองรับ Geolocation');
     }
+}
+
+/**
+ * วาง / อัปเดต GPS marker (pulse dot) บนแผนที่
+ */
+function placeUserGPSMarker(lat, lng) {
+    if (!map || typeof L === 'undefined') return;
+
+    if (!userLiveMarker) {
+        const gpsIcon = L.divIcon({
+            className: 'user-gps-marker',
+            html: '<div class="user-gps-pulse"></div><div class="user-gps-dot"></div>',
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+        });
+        userLiveMarker = L.marker([lat, lng], {
+            icon: gpsIcon,
+            zIndexOffset: 1000,
+            interactive: true
+        }).addTo(map).bindPopup('<b>📍 จุดเริ่มต้นของคุณ</b><br><small>ตำแหน่ง GPS ปัจจุบัน</small>');
+    } else {
+        userLiveMarker.setLatLng([lat, lng]);
+    }
+}
+
+/**
+ * ปุ่ม "ตำแหน่งปัจจุบัน" — บังคับ re-center ไปยัง GPS ล่าสุด
+ */
+function useCurrentLocation() {
+    const inputEl = document.getElementById('start-location');
+    if (inputEl) {
+        inputEl.value = 'กำลังดึงตำแหน่ง...';
+        delete inputEl.dataset.manuallySet; // ยกเลิก manual override
+    }
+    userIsUsingGPS = true;
+
+    resolveUserLocation(
+        (lat, lng) => {
+            startCoords = { lat, lng };
+
+            if (inputEl) {
+                inputEl.value = `📍 ตำแหน่งปัจจุบัน (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+            }
+
+            placeUserGPSMarker(lat, lng);
+            if (map) {
+                map.flyTo([lat, lng], 15, { animate: true, duration: 0.8 });
+            }
+            updateMap();
+        },
+        (errMsg) => {
+            alert(errMsg || 'ไม่สามารถดึงตำแหน่งปัจจุบันได้');
+            if (inputEl) inputEl.value = '';
+        }
+    );
 }
 
 let generatedPlans = [[], [], []];
@@ -283,9 +1055,19 @@ function generatePlan() {
     const placeCountSelection = document.getElementById('place-count').value;
     const travelDistanceSelection = document.getElementById('travel-distance').value;
     
+    // Calculate max places based on time and pace
+    const globalTimeSpent = timePerPlaceSelection === 'auto' ? 60 : parseInt(timePerPlaceSelection);
+    
+    const [sH, sM] = startTimeStr.split(':').map(Number);
+    const [eH, eM] = endTimeStr.split(':').map(Number);
+    let totalMinutes = (eH * 60 + eM) - (sH * 60 + sM);
+    if (totalMinutes <= 0) totalMinutes = 24 * 60 + totalMinutes; // Handle overnight
+    const tripStartMin = sH * 60 + sM;
+    const tripEndMin = eH * 60 + eM;
+
     // 2. Filter Places from Data and Deep Clone to avoid mutating global state
     const allPlaces = getPlaces();
-    let eligiblePlaces = allPlaces.filter(p => {
+    const filterPlaceCandidate = (p, checkHours = true) => {
         const r = p.rating ? parseFloat(p.rating) : 4.0;
         
         let inPolygon = true;
@@ -293,9 +1075,16 @@ function generatePlan() {
             inPolygon = isPointInPolygon(p.lat, p.lng, selectedPolygon);
         }
 
+        // Check if place falls inside selected district polygons
+        let inDistrict = true;
+        if (!isAllDistricts && selectedDistrictNames.size > 0) {
+            inDistrict = isPointInSelectedDistricts(p.lat, p.lng);
+        }
+
         let inDistance = true;
-        // If polygon is drawn, it overrides distance filter
-        if (!selectedPolygon && travelDistanceSelection !== 'unlimited' && startCoords) {
+        const hasSpatialBoundary = selectedPolygon || (!isAllDistricts && selectedDistrictNames.size > 0);
+        const isUnlimited = travelDistanceSelection === 'unlimited' || parseInt(travelDistanceSelection) >= 50;
+        if (!hasSpatialBoundary && !isUnlimited && startCoords) {
             const maxDist = parseInt(travelDistanceSelection);
             const R = 6371;
             const dLat = (p.lat - startCoords.lat) * Math.PI / 180;
@@ -307,16 +1096,21 @@ function generatePlan() {
             const distanceKm = R * c; 
             inDistance = distanceKm <= maxDist;
         }
-        return categories.includes(p.category) && r >= globalMinRating && inPolygon && inDistance;
-    }).map(p => ({...p}));
-    
-    // Calculate max places based on time and pace
-    const globalTimeSpent = timePerPlaceSelection === 'auto' ? 60 : parseInt(timePerPlaceSelection);
-    
-    const [sH, sM] = startTimeStr.split(':').map(Number);
-    const [eH, eM] = endTimeStr.split(':').map(Number);
-    let totalMinutes = (eH * 60 + eM) - (sH * 60 + sM);
-    if (totalMinutes <= 0) totalMinutes = 24 * 60 + totalMinutes; // Handle overnight
+
+        // Check if place is open during user's trip window
+        let inHours = true;
+        if (checkHours && typeof doesPlaceOverlapTripWindow === 'function') {
+            inHours = doesPlaceOverlapTripWindow(p, tripStartMin, tripEndMin);
+        }
+
+        return categories.includes(p.category) && r >= globalMinRating && inPolygon && inDistrict && inDistance && inHours;
+    };
+
+    let eligiblePlaces = allPlaces.filter(p => filterPlaceCandidate(p, true)).map(p => ({...p}));
+    // Fallback: if strict opening-hours check filters out all places, loosen the check
+    if (eligiblePlaces.length === 0) {
+        eligiblePlaces = allPlaces.filter(p => filterPlaceCandidate(p, false)).map(p => ({...p}));
+    }
     
     const mealsChoice = document.getElementById('meals') ? document.getElementById('meals').value : 'none';
     let mealCount = 0;
@@ -340,7 +1134,7 @@ function generatePlan() {
     currentPlanIndex = 0;
 
     for (let planIdx = 0; planIdx < 3; planIdx++) {
-        // Pick random places
+        // Pick candidate places
         let nonRestPlaces = eligiblePlaces.filter(p => p.category !== 'ร้านอาหาร');
         if (nonRestPlaces.length < maxPlaces) {
             nonRestPlaces = eligiblePlaces; // fallback to include restaurants if short on places
@@ -355,31 +1149,66 @@ function generatePlan() {
             let unvisited = [...pickedPlaces];
             let optimized = [];
             let currentLoc = startCoords;
+            let currentSimMinutes = tripStartMin;
             
+            // Time-Aware Nearest Neighbor Sequencing:
+            // ณ เวลาที่จำลองไปถึงแต่ละจุด จะเลือกสถานที่ใกล้ที่สุดที่ "เปิดทำการอยู่"
+            // สถานที่ที่เปิดช่วงเย็นจะถูกจัดไปไว้ช่วงท้ายของวันเมื่อถึงเวลาเปิด
             while (unvisited.length > 0) {
-                let nearestIdx = 0;
-                let minDist = Infinity;
+                let bestIdx = 0;
+                let bestScore = Infinity;
                 
                 for (let i = 0; i < unvisited.length; i++) {
                     const p = unvisited[i];
+                    const travelMins = getTravelTime(currentLoc, p, mode) || 15;
+                    const estArrivalMin = currentSimMinutes + travelMins;
+                    const pStay = (timePerPlaceSelection !== 'auto') ? parseInt(timePerPlaceSelection) : (p.timeSpent || globalTimeSpent);
+                    
                     const dLat = currentLoc.lat - p.lat;
                     const dLng = currentLoc.lng - p.lng;
-                    const dist = dLat*dLat + dLng*dLng;
-                    if (dist < minDist) {
-                        minDist = dist;
-                        nearestIdx = i;
+                    const geoDist = Math.sqrt(dLat * dLat + dLng * dLng);
+                    
+                    let score = geoDist;
+                    if (typeof isPlaceOpenAtTime === 'function') {
+                        const openCheck = isPlaceOpenAtTime(p, estArrivalMin, pStay);
+                        if (!openCheck.isOpen) {
+                            if (openCheck.tooEarly) {
+                                // เปิดช่วงบ่าย/เย็นกว่านี้: เพิ่ม penalty เพื่อให้ข้ามไปก่อน แล้วค่อยเลือกเมื่อถึงเวลาเปิด
+                                score += 1000;
+                            } else {
+                                // ปิดทำการแล้ว หรือปิดในวันนี้: penalize หนัก
+                                score += 5000;
+                            }
+                        }
+                    }
+                    
+                    if (score < bestScore) {
+                        bestScore = score;
+                        bestIdx = i;
                     }
                 }
                 
-                currentLoc = unvisited[nearestIdx];
-                optimized.push(currentLoc);
-                unvisited.splice(nearestIdx, 1);
+                const chosen = unvisited[bestIdx];
+                const travelMins = getTravelTime(currentLoc, chosen, mode) || 15;
+                const chosenStay = (timePerPlaceSelection !== 'auto') ? parseInt(timePerPlaceSelection) : (chosen.timeSpent || globalTimeSpent);
+                currentSimMinutes += travelMins + chosenStay;
+                currentLoc = chosen;
+                optimized.push(chosen);
+                unvisited.splice(bestIdx, 1);
             }
             if (timePerPlaceSelection !== 'auto') {
                 optimized.forEach(p => p.timeSpent = parseInt(timePerPlaceSelection));
             }
             planItinerary = injectMeals(optimized, mealsChoice, sH, sM);
         } else {
+            // กรณีไม่มีจุดเริ่มต้น ให้เรียงตามเวลาเปิดทำการจากเช้าไปเย็น
+            if (typeof parseOpeningHours === 'function') {
+                pickedPlaces.sort((a, b) => {
+                    const aH = parseOpeningHours(a.opening_hours || a.openingHours);
+                    const bH = parseOpeningHours(b.opening_hours || b.openingHours);
+                    return aH.openMin - bH.openMin;
+                });
+            }
             if (timePerPlaceSelection !== 'auto') {
                 pickedPlaces.forEach(p => p.timeSpent = parseInt(timePerPlaceSelection));
             }
@@ -511,6 +1340,24 @@ function renderItineraryList() {
             
             prevLoc = place;
             
+            // Check opening hours status for UI
+            let openBadgeHtml = '';
+            const hoursText = place.opening_hours || place.openingHours || '';
+            if (hoursText && !place.isEndLocation) {
+                const [pH, pM] = (place.startTime || '09:00').split(':').map(Number);
+                const arrivalMin = (pH || 0) * 60 + (pM || 0);
+                if (typeof isPlaceOpenAtTime === 'function') {
+                    const status = isPlaceOpenAtTime(place, arrivalMin, timeToSpend);
+                    if (status.isOpen) {
+                        openBadgeHtml = `<span style="color: #059669; font-size: 0.78rem; font-weight: 500; display: inline-flex; align-items: center; gap: 4px;"><i class="fa-regular fa-clock"></i> ${hoursText} <span style="background: #D1FAE5; color: #065F46; padding: 1px 6px; border-radius: 8px; font-size: 0.7rem;">เปิด</span></span>`;
+                    } else {
+                        openBadgeHtml = `<span style="color: #DC2626; font-size: 0.78rem; font-weight: 500; display: inline-flex; align-items: center; gap: 4px;"><i class="fa-regular fa-clock"></i> ${hoursText} <span style="background: #FEE2E2; color: #991B1B; padding: 1px 6px; border-radius: 8px; font-size: 0.7rem;"><i class="fa-solid fa-triangle-exclamation"></i> อาจปิดทำการ</span></span>`;
+                    }
+                } else {
+                    openBadgeHtml = `<span style="color: var(--text-muted); font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px;"><i class="fa-regular fa-clock"></i> ${hoursText}</span>`;
+                }
+            }
+
             // Render HTML
             const item = document.createElement('div');
             item.className = 'itinerary-item';
@@ -524,9 +1371,10 @@ function renderItineraryList() {
                         <i class="fa-solid fa-hourglass-half"></i> 
                         <input type="number" value="${place.timeSpent}" min="5" step="5" style="width: 60px; padding: 2px 5px; border-radius: 4px; border: 1px solid #ccc; font-family: inherit;" onchange="updatePlaceTime('${place.id}', this.value)"> นาที
                     </p>
-                    <p>
-                        <span style="margin-right: 10px;"><i class="fa-solid fa-tag"></i> ${place.category || '-'}</span>
-                        <span style="color: #F59E0B; font-weight: 500;"><i class="fa-solid fa-star"></i> ${place.rating || '4.5'} <span style="color: var(--text-muted); font-weight: normal; font-size: 0.8rem;">(${place.reviews || '10'})</span></span>
+                    <p style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
+                        <span><i class="fa-solid fa-tag"></i> ${place.category || '-'}</span>
+                        <span style="color: #F59E0B; font-weight: 500;"><i class="fa-solid fa-star"></i> ${place.rating || '4.5'}</span>
+                        ${openBadgeHtml}
                     </p>
                 </div>
                 <div class="item-actions">
@@ -583,28 +1431,45 @@ function removePlace(id) {
 }
 
 function updateMap() {
-    // Clear existing
-    markers.forEach(m => map.removeLayer(m));
+    // Clear existing markers — แต่ยกเว้น userLiveMarker (GPS dot จัดการแยก)
+    markers.forEach(m => {
+        if (m !== userLiveMarker) map.removeLayer(m);
+    });
     markers = [];
     routeLines.forEach(l => map.removeLayer(l));
     routeLines = [];
     if (routingControl) map.removeControl(routingControl);
+    updateRadiusCircle();
     
     const latlngs = [];
     
     if (startCoords) {
         const startLatLng = [startCoords.lat, startCoords.lng];
         latlngs.push(startLatLng);
-        
-        const startMarker = L.marker(startLatLng, {
-            icon: L.divIcon({
-                className: 'start-marker-container',
-                html: '<div class="start-marker-pin"><i class="fa-solid fa-flag"></i></div>',
-                iconSize: [34, 34],
-                iconAnchor: [17, 34] // Anchor at the bottom tip of the pin
-            })
-        }).addTo(map).bindPopup(`<b>จุดเริ่มต้น</b>`);
-        markers.push(startMarker);
+
+        if (userIsUsingGPS) {
+            // Re-add GPS marker กลับเข้าแผนที่ (กรณีที่ถูก remove ไปก่อนหน้า)
+            if (userLiveMarker) {
+                userLiveMarker.setLatLng([startCoords.lat, startCoords.lng]);
+                if (!map.hasLayer(userLiveMarker)) {
+                    userLiveMarker.addTo(map);
+                }
+                // ไม่ push เข้า markers[] เพื่อป้องกันถูก removeLayer รอบถัดไป
+            } else {
+                placeUserGPSMarker(startCoords.lat, startCoords.lng);
+            }
+        } else {
+            // ใช้ flag marker แบบเดิมเมื่อผู้ใช้เซ็ตเองด้วยมือ
+            const startMarker = L.marker(startLatLng, {
+                icon: L.divIcon({
+                    className: 'start-marker-container',
+                    html: '<div class="start-marker-pin"><i class="fa-solid fa-flag"></i></div>',
+                    iconSize: [34, 34],
+                    iconAnchor: [17, 34]
+                })
+            }).addTo(map).bindPopup(`<b>จุดเริ่มต้น</b>`);
+            markers.push(startMarker);
+        }
     }
 
     if (currentItinerary.length === 0) return;
@@ -697,9 +1562,11 @@ function updateMap() {
     // Zoom map to fit all markers and routes
     if (markers.length > 0) {
         const group = new L.featureGroup([...markers, ...routeLines]);
-        if (group.getBounds().isValid()) {
+        const bounds = group.getBounds();
+        if (bounds.isValid()) {
+            lastRouteBounds = bounds; // บันทึกไว้สำหรับใช้ตอน switch มาหน้า map
             map.invalidateSize();
-            map.fitBounds(group.getBounds(), { padding: [70, 70] });
+            map.fitBounds(bounds, { padding: [70, 70] });
         }
     }
 }
@@ -821,7 +1688,7 @@ function openAddPlaceModal() {
                     <h4>${place.name}</h4>
                     <p style="font-size: 0.8rem; color: var(--text-muted);">
                         <span style="margin-right: 10px;">${place.category}</span>
-                        <span style="color: #F59E0B; font-weight: 500;"><i class="fa-solid fa-star"></i> ${place.rating || '4.5'} <span style="color: var(--text-muted); font-weight: normal; font-size: 0.75rem;">(${place.reviews || '10'})</span></span>
+                        <span style="color: #F59E0B; font-weight: 500;"><i class="fa-solid fa-star"></i> ${place.rating || '4.5'}</span>
                     </p>
                 </div>
                 <button class="btn btn-primary small-btn" onclick="addPlaceToItinerary('${placeIdStr}')">เพิ่ม</button>
@@ -860,74 +1727,143 @@ window.onclick = function(event) {
 let currentRouteCoords = null;
 let currentRouteIndices = null;
 
-// OSRM Real Travel Time Fetcher
-async function getRealTravelTimes(waypoints, mode, retries = 3, useRadiuses = false) {
+// Geoapify & OSRM Real Travel Time Fetcher
+const GEOAPIFY_API_KEY = '66ebddfc6486404f8155f26ad646927d';
+
+async function fetchGeoapifyRoute(waypoints, mode) {
+    if (!GEOAPIFY_API_KEY || !waypoints || waypoints.length < 2) return null;
+    const gMode = (mode === 'motorcycle') ? 'motorcycle' : 'drive';
+    const wpString = waypoints.map(wp => `${wp.lat},${wp.lng}`).join('|');
+    const url = `https://api.geoapify.com/v1/routing?waypoints=${wpString}&mode=${gMode}&format=geojson&apiKey=${GEOAPIFY_API_KEY}`;
+    try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const feat = data.features?.[0];
+        if (!feat || !feat.properties?.legs) return null;
+
+        const geomCoords = feat.geometry.type === 'MultiLineString'
+            ? feat.geometry.coordinates.flat(1)
+            : feat.geometry.coordinates;
+
+        const coords = geomCoords.map(c => ({ lat: c[1], lng: c[0] }));
+
+        const indices = [0];
+        for (let i = 1; i < waypoints.length - 1; i++) {
+            const wp = waypoints[i];
+            let closestIdx = indices[i - 1];
+            let minDist = Infinity;
+            for (let j = indices[i - 1]; j < coords.length; j++) {
+                const c = coords[j];
+                const d = (c.lat - wp.lat) ** 2 + (c.lng - wp.lng) ** 2;
+                if (d < minDist) { minDist = d; closestIdx = j; }
+            }
+            indices.push(closestIdx);
+        }
+        indices.push(coords.length - 1);
+
+        const legs = feat.properties.legs;
+        let times = legs.map(leg => Math.round(leg.time / 60));
+        if (mode === 'motorcycle') times = times.map(t => Math.max(1, Math.round(t * 0.8)));
+        times = times.map(t => t + (mode === 'motorcycle' ? 2 : 5));
+        return { times, coords, indices };
+    } catch (e) {
+        console.warn('Geoapify route fetch failed, falling back to OSRM:', e.message);
+        return null;
+    }
+}
+
+// ใช้ OSRM API หลายตัวสำรอง เพื่อความเสถียร
+const OSRM_SERVERS = [
+    { base: 'https://router.project-osrm.org', prefix: '' },
+    { base: 'https://routing.openstreetmap.de', prefix: '/routed-car' }
+];
+let osrmServerIdx = 0;
+
+async function fetchOSRM(path, retries = 2) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        const srv = OSRM_SERVERS[osrmServerIdx % OSRM_SERVERS.length];
+        const fullUrl = srv.base + srv.prefix + path;
+        try {
+            const response = await fetch(fullUrl, { signal: AbortSignal.timeout(12000) });
+            if (response.ok) return response;
+            if (response.status === 429) {
+                console.warn('OSRM Rate limit, switching server...');
+                osrmServerIdx++;
+                await new Promise(r => setTimeout(r, 800));
+                continue;
+            }
+            if (response.status === 400) return null; // Bad request — no route possible
+        } catch (err) {
+            console.warn(`OSRM server ${srv.base} failed:`, err.message);
+            osrmServerIdx++;
+            if (attempt < retries) await new Promise(r => setTimeout(r, 500));
+        }
+    }
+    return null;
+}
+
+async function getRealTravelTimes(waypoints, mode, useRadiuses = false) {
     if (waypoints.length < 2) return null;
-    
+
+    // First try Geoapify for real vehicular driving route
+    if (!useRadiuses) {
+        const geoapifyRes = await fetchGeoapifyRoute(waypoints, mode);
+        if (geoapifyRes) return geoapifyRes;
+    }
+
     const profile = 'driving';
     const coordString = waypoints.map(wp => `${wp.lng},${wp.lat}`).join(';');
-    
-    let url = `https://router.project-osrm.org/route/v1/${profile}/${coordString}?overview=full&geometries=geojson`;
+    // waypoints param บอก OSRM ว่าต้องผ่านทุกจุด (ไม่ shortcut ข้ามจุดใดจุดหนึ่ง)
+    const waypointIndices = waypoints.map((_, i) => i).join(';');
+
+    let url = `/route/v1/${profile}/${coordString}?overview=full&geometries=geojson&steps=false&waypoints=${waypointIndices}`;
     if (useRadiuses) {
-        // Add 10km radius search to snap random off-road coordinates to the nearest road
         const radiusesString = waypoints.map(() => '10000').join(';');
         url += `&radiuses=${radiusesString}`;
     }
-    
+
     try {
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-            if (response.status === 429 && retries > 0) {
-                console.warn("OSRM Rate limit hit, retrying in 1.2s...");
-                await new Promise(r => setTimeout(r, 1200));
-                return getRealTravelTimes(waypoints, mode, retries - 1, useRadiuses);
-            }
-            return null; // Don't try to parse json if it's an error we can't retry (like 400 Bad Request)
+        const response = await fetchOSRM(url);
+        if (!response) {
+            if (!useRadiuses) return getRealTravelTimes(waypoints, mode, true);
+            return null;
         }
-        
+
         const data = await response.json();
-        
+
         if (data.code === 'Ok') {
             let coords = null;
             let indices = null;
-            
+
             if (data.routes[0].geometry && data.routes[0].geometry.coordinates) {
-                coords = data.routes[0].geometry.coordinates.map(c => ({lat: c[1], lng: c[0]}));
-                
+                coords = data.routes[0].geometry.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
+
                 indices = [0];
                 for (let i = 1; i < waypoints.length - 1; i++) {
-                    let wp = waypoints[i];
-                    let closestIdx = indices[i-1];
+                    const wp = waypoints[i];
+                    let closestIdx = indices[i - 1];
                     let minDist = Infinity;
-                    for (let j = indices[i-1]; j < coords.length; j++) {
-                        let c = coords[j];
-                        let dLat = c.lat - wp.lat;
-                        let dLng = c.lng - wp.lng;
-                        let d = dLat*dLat + dLng*dLng;
-                        if (d < minDist) {
-                            minDist = d;
-                            closestIdx = j;
-                        }
+                    for (let j = indices[i - 1]; j < coords.length; j++) {
+                        const c = coords[j];
+                        const d = (c.lat - wp.lat) ** 2 + (c.lng - wp.lng) ** 2;
+                        if (d < minDist) { minDist = d; closestIdx = j; }
                     }
                     indices.push(closestIdx);
                 }
                 indices.push(coords.length - 1);
             }
-            
-            const legs = data.routes[0].legs; 
+
+            const legs = data.routes[0].legs;
             let times = legs.map(leg => Math.round(leg.duration / 60));
-            if (mode === 'motorcycle') {
-                times = times.map(t => Math.max(1, Math.round(t * 0.8))); 
-            }
+            if (mode === 'motorcycle') times = times.map(t => Math.max(1, Math.round(t * 0.8)));
             times = times.map(t => t + (mode === 'motorcycle' ? 2 : 5));
             return { times, coords, indices };
-        } else if (data.code === 'NoRoute' && !useRadiuses && retries > 0) {
-            // If it failed to find a route because points are too far off-road, retry with expanded radiuses!
-            return getRealTravelTimes(waypoints, mode, retries - 1, true);
+        } else if (data.code === 'NoRoute' && !useRadiuses) {
+            return getRealTravelTimes(waypoints, mode, true);
         }
-    } catch(err) {
-        console.error("OSRM fetch error:", err);
+    } catch (err) {
+        console.error('OSRM fetch error:', err);
     }
     return null;
 }
@@ -1107,21 +2043,40 @@ function getTravelTime(loc1, loc2, mode = 'car') {
     return Math.max(5, Math.min(60, timeMins + bufferMins));
 }
 
-function findClosest(places, targetLoc, excludeList) {
+function findClosest(places, targetLoc, excludeList, targetMinute = null) {
     let best = null;
     let minDist = Infinity;
     const excludeIds = excludeList.map(p => p.id);
     
+    // First pass: look for restaurants/cafes that are actually OPEN at targetMinute
     places.forEach(p => {
         if (excludeIds.includes(p.id)) return;
+        if (targetMinute !== null && typeof isPlaceOpenAtTime === 'function') {
+            const check = isPlaceOpenAtTime(p, targetMinute, 60);
+            if (!check.isOpen) return;
+        }
         const dLat = p.lat - targetLoc.lat;
         const dLng = p.lng - targetLoc.lng;
-        const dist = dLat*dLat + dLng*dLng;
+        const dist = dLat * dLat + dLng * dLng;
         if (dist < minDist) {
             minDist = dist;
             best = p;
         }
     });
+    
+    // Fallback: if no open restaurant found, find closest without strict opening constraint
+    if (!best) {
+        places.forEach(p => {
+            if (excludeIds.includes(p.id)) return;
+            const dLat = p.lat - targetLoc.lat;
+            const dLng = p.lng - targetLoc.lng;
+            const dist = dLat * dLat + dLng * dLng;
+            if (dist < minDist) {
+                minDist = dist;
+                best = p;
+            }
+        });
+    }
     
     return best ? {...best} : null;
 }
@@ -1140,9 +2095,17 @@ function injectMeals(itinerary, mealsChoice, startH, startM) {
     const restaurants = allPlaces.filter(p => {
         if (p.category !== 'ร้านอาหาร' && p.category !== 'คาเฟ่/ถ่ายรูป') return false;
         
+        let inDistrict = true;
+        if (!isAllDistricts && selectedDistrictNames.size > 0) {
+            inDistrict = isPointInSelectedDistricts(p.lat, p.lng);
+        }
+        if (!inDistrict) return false;
+
+        const hasSpatialBoundary = selectedPolygon || (!isAllDistricts && selectedDistrictNames.size > 0);
+        const isUnlimited = travelDistanceSelection === 'unlimited' || parseInt(travelDistanceSelection) >= 50;
         if (selectedPolygon) {
             return isPointInPolygon(p.lat, p.lng, selectedPolygon);
-        } else if (travelDistanceSelection !== 'unlimited' && startCoords) {
+        } else if (!hasSpatialBoundary && !isUnlimited && startCoords) {
             const maxDist = parseInt(travelDistanceSelection);
             const R = 6371;
             const dLat = (p.lat - startCoords.lat) * Math.PI / 180;
@@ -1163,7 +2126,8 @@ function injectMeals(itinerary, mealsChoice, startH, startM) {
         // Check for Lunch (around 11:00 - 14:00)
         if ((mealsChoice === 'lunch' || mealsChoice === 'both') && !lunchAdded && h >= 11 && h < 14) {
             const prevLoc = result.length > 0 ? result[result.length - 1] : (startCoords || place);
-            const bestRest = findClosest(restaurants, prevLoc, result);
+            const currentMin = h * 60 + m;
+            const bestRest = findClosest(restaurants, prevLoc, result, currentMin);
             if (bestRest) {
                 bestRest.id = 'meal_' + Date.now() + Math.random();
                 bestRest.timeSpent = 60; // 1 hr for meal
@@ -1180,7 +2144,8 @@ function injectMeals(itinerary, mealsChoice, startH, startM) {
         // Check for Dinner (around 17:00 - 20:00)
         if ((mealsChoice === 'dinner' || mealsChoice === 'both') && !dinnerAdded && h >= 17 && h < 20) {
             const prevLoc = result.length > 0 ? result[result.length - 1] : (startCoords || place);
-            const bestRest = findClosest(restaurants, prevLoc, result);
+            const currentMin = h * 60 + m;
+            const bestRest = findClosest(restaurants, prevLoc, result, currentMin);
             if (bestRest) {
                 bestRest.id = 'meal_' + Date.now() + Math.random();
                 bestRest.timeSpent = 60;
@@ -1226,3 +2191,23 @@ function injectMeals(itinerary, mealsChoice, startH, startM) {
     
     return result;
 }
+
+// Start Trip Navigation
+window.startTripNavigation = function() {
+    if (!currentItinerary || currentItinerary.length === 0) {
+        alert('กรุณาสร้างแผนการท่องเที่ยวให้เรียบร้อยก่อนเริ่มต้นการเดินทาง');
+        return;
+    }
+    
+    if (typeof TripNavigator !== 'undefined') {
+        TripNavigator.start({
+            itinerary: currentItinerary,
+            startCoords: startCoords,
+            endCoords: endCoords,
+            map: map,
+            endName: document.getElementById('end-location') ? document.getElementById('end-location').value : 'จุดสิ้นสุด'
+        });
+    } else {
+        alert('ระบบนำทางยังไม่พร้อมใช้งาน กรุณารีเฟรชหน้าเว็บ');
+    }
+};

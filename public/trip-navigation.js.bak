@@ -1,0 +1,619 @@
+/**
+ * Trip Sequential Navigation Module (ระบบนำทางตามลำดับแผนการเดินทาง)
+ * Works seamlessly with both Automatic Trip Planner and Custom Plan pages.
+ */
+
+window.TripNavigator = (function() {
+    let state = {
+        isActive: false,
+        steps: [], // Array of destination stops
+        currentIndex: 0,
+        watchId: null,
+        userLocation: null,
+        userMarker: null,
+        userAccuracyCircle: null,
+        map: null,
+        onStepChangeCallback: null,
+        totalDistanceKm: 0,
+        totalTimeMinutes: 0
+    };
+
+    /**
+     * Calculate distance between two lat/lng in kilometers (Haversine formula)
+     */
+    function calculateDistanceKm(lat1, lon1, lat2, lon2) {
+        if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
+        const R = 6371; // Radius of Earth in km
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = 
+            Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+    }
+
+    /**
+     * Format distance to human-readable string
+     */
+    function formatDistance(km) {
+        if (!km && km !== 0) return '--';
+        if (km < 1) {
+            return `${Math.round(km * 1000)} ม.`;
+        }
+        return `${km.toFixed(1)} กม.`;
+    }
+
+    /**
+     * Initialize DOM elements for Navigation HUD & Modals
+     */
+    function ensureNavigationDOM() {
+        if (document.getElementById('trip-navigation-overlay')) return;
+
+        // Create overlay container
+        const overlay = document.createElement('div');
+        overlay.id = 'trip-navigation-overlay';
+        overlay.innerHTML = `
+            <div class="nav-card">
+                <div class="nav-card-header">
+                    <div class="nav-step-badge" id="nav-step-badge">
+                        <i class="fa-solid fa-location-dot"></i> <span id="nav-step-count">จุดที่ 1/4</span>
+                    </div>
+                    <div class="nav-mode-title">
+                        <i class="fa-solid fa-route"></i> โหมดนำทางสด
+                    </div>
+                    <button class="nav-close-btn" onclick="TripNavigator.stop()" title="ออกจากโหมดนำทาง">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div class="nav-progress-container">
+                    <div class="nav-progress-bar" id="nav-progress-bar" style="width: 25%;"></div>
+                </div>
+                <div class="nav-card-body">
+                    <img id="nav-dest-img" class="nav-dest-img" src="../places/default.jpg" alt="ภาพสถานที่" onerror="this.src='https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=300'">
+                    <div class="nav-dest-info">
+                        <span class="nav-dest-tag" id="nav-dest-tag">สถานที่ท่องเที่ยว</span>
+                        <h3 class="nav-dest-title" id="nav-dest-title">ชื่อสถานที่</h3>
+                        <div class="nav-dest-metrics">
+                            <span class="nav-metric-item"><i class="fa-regular fa-clock"></i> ถึงประมาณ <b id="nav-dest-time">--:--</b></span>
+                            <span class="nav-metric-item"><i class="fa-solid fa-hourglass-half"></i> แวะพัก <b id="nav-dest-stay">60</b> น.</span>
+                            <span class="nav-metric-item nav-live-distance" id="nav-distance-container">
+                                <i class="fa-solid fa-diamond-turn-right"></i> ห่าง <span id="nav-live-distance">--</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div class="nav-card-actions">
+                    <button class="nav-btn nav-btn-prev" id="nav-btn-prev" onclick="TripNavigator.prevStep()" title="ย้อนกลับจุดก่อนหน้า">
+                        <i class="fa-solid fa-chevron-left"></i>
+                    </button>
+                    <button class="nav-btn nav-btn-gmaps" id="nav-btn-gmaps" onclick="TripNavigator.openGoogleMaps()">
+                        <i class="fa-solid fa-map-location-dot"></i> Google Maps
+                    </button>
+                    <button class="nav-btn nav-btn-next" id="nav-btn-next" onclick="TripNavigator.nextStep()">
+                        <span>ถึงแล้ว / ถัดไป</span> <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+
+        // Create Completed Modal
+        const modal = document.createElement('div');
+        modal.id = 'nav-completed-modal';
+        modal.className = 'nav-completed-modal';
+        modal.innerHTML = `
+            <div class="nav-completed-box">
+                <div class="nav-completed-icon">
+                    <i class="fa-solid fa-flag-checkered"></i>
+                </div>
+                <h2 class="nav-completed-title">ยินดีด้วย! คุณเดินทางถึงครบแล้ว</h2>
+                <p class="nav-completed-desc">คุณได้เดินทางท่องเที่ยวครบทุกจุดหมายตามแผนการเดินทางเรียบร้อยแล้ว หวังว่าคุณจะมีความสุขกับทริปนี้!</p>
+                <div class="nav-completed-stats">
+                    <div>
+                        <div class="nav-stat-val" id="nav-stat-places">0</div>
+                        <div class="nav-stat-lbl">สถานที่ที่แวะ</div>
+                    </div>
+                    <div>
+                        <div class="nav-stat-val" id="nav-stat-distance">--</div>
+                        <div class="nav-stat-lbl">ระยะทางรวม</div>
+                    </div>
+                    <div>
+                        <div class="nav-stat-val" id="nav-stat-time">--</div>
+                        <div class="nav-stat-lbl">เวลารวม</div>
+                    </div>
+                </div>
+                <button class="btn btn-primary" style="width: 100%; justify-content: center; padding: 0.85rem;" onclick="TripNavigator.closeCompletedModal()">
+                    <i class="fa-solid fa-check"></i> เสร็จสิ้นการเดินทาง
+                </button>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+        document.body.appendChild(modal);
+    }
+
+    /**
+     * Start Navigation Mode
+     * @param {Object} options - { itinerary, startCoords, endCoords, map, totalDistance, totalTime }
+     */
+    function start(options) {
+        if (!options || !options.itinerary || options.itinerary.length === 0) {
+            alert('ไม่พบรายการสถานที่ในแผนการเดินทาง');
+            return;
+        }
+
+        ensureNavigationDOM();
+
+        state.map = options.map || (typeof map !== 'undefined' ? map : null);
+        state.currentIndex = 0;
+        state.isActive = true;
+        state.totalDistanceKm = options.totalDistance || 0;
+        state.totalTimeMinutes = options.totalTime || 0;
+
+        // Build list of sequential steps
+        state.steps = options.itinerary.map((p, idx) => ({
+            index: idx,
+            name: p.name || 'สถานที่ท่องเที่ยว',
+            category: p.category || 'ท่องเที่ยว',
+            image: p.image || '',
+            lat: parseFloat(p.lat),
+            lng: parseFloat(p.lng),
+            stayTime: p.visitMinutes || p.stay_time || 60,
+            arrivalStr: p.arrivalStr || (p.estimatedArrival ? p.estimatedArrival : '--:--'),
+            departStr: p.departStr || (p.estimatedDeparture ? p.estimatedDeparture : '--:--'),
+            realDistKm: p.realDistKm || null,
+            realTravelMins: p.realTravelMins || null,
+            originalData: p
+        }));
+
+        // If end destination exists and is distinct
+        if (options.endCoords && options.endCoords.lat) {
+            const lastPlace = state.steps[state.steps.length - 1];
+            const distToEnd = calculateDistanceKm(lastPlace.lat, lastPlace.lng, options.endCoords.lat, options.endCoords.lng);
+            if (distToEnd > 0.05) { // more than 50 meters
+                state.steps.push({
+                    index: state.steps.length,
+                    name: options.endName || 'จุดสิ้นสุดการเดินทาง',
+                    category: 'จุดสิ้นสุด',
+                    image: 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=300',
+                    lat: parseFloat(options.endCoords.lat),
+                    lng: parseFloat(options.endCoords.lng),
+                    stayTime: 0,
+                    arrivalStr: '--:--',
+                    departStr: '--:--',
+                    isEndLocation: true
+                });
+            }
+        }
+
+        // Show Navigation HUD
+        const overlay = document.getElementById('trip-navigation-overlay');
+        if (overlay) overlay.style.display = 'block';
+
+        // Start GPS Watcher
+        startLocationWatcher();
+
+        // Switch to Map View if on Mobile
+        if (typeof window.switchMobileView === 'function') {
+            window.switchMobileView('map');
+        }
+
+        // Update UI for current step
+        updateStepUI();
+
+        // Trigger map resize & zoom: แสดง overview ทั้งเส้นทางก่อน แล้วค่อย zoom เข้าจุดแรก
+        if (state.map) {
+            setTimeout(() => {
+                state.map.invalidateSize();
+                // Step 1: แสดง overview ทั้งหมดก่อน
+                fitAllStepsOnMap();
+            }, 250);
+
+            // Step 2: หลัง 2 วินาที zoom เข้าจุดแรก
+            setTimeout(() => {
+                if (state.isActive) {
+                    state.map.invalidateSize();
+                    focusCurrentStepOnMap();
+                }
+            }, 2200);
+        }
+    }
+
+    /**
+     * Start live Geolocation Watcher
+     */
+    function startLocationWatcher() {
+        if (!navigator.geolocation) return;
+
+        state.watchId = navigator.geolocation.watchPosition(
+            (position) => {
+                const { latitude, longitude, accuracy } = position.coords;
+                state.userLocation = { lat: latitude, lng: longitude, accuracy };
+
+                updateUserMarkerOnMap(latitude, longitude, accuracy);
+                updateLiveDistance();
+            },
+            (error) => {
+                console.warn("Geolocation watch warning/error:", error.message);
+            },
+            {
+                enableHighAccuracy: true,
+                maximumAge: 5000,
+                timeout: 10000
+            }
+        );
+    }
+
+    /**
+     * Stop live Geolocation Watcher
+     */
+    function stopLocationWatcher() {
+        if (state.watchId !== null) {
+            navigator.geolocation.clearWatch(state.watchId);
+            state.watchId = null;
+        }
+        if (state.userMarker && state.map) {
+            state.map.removeLayer(state.userMarker);
+            state.userMarker = null;
+        }
+        if (state.userAccuracyCircle && state.map) {
+            state.map.removeLayer(state.userAccuracyCircle);
+            state.userAccuracyCircle = null;
+        }
+    }
+
+    /**
+     * Update or create Leaflet marker for user's GPS position
+     */
+    function updateUserMarkerOnMap(lat, lng, accuracy) {
+        if (!state.map || typeof L === 'undefined') return;
+
+        const gpsIcon = L.divIcon({
+            className: 'user-gps-marker',
+            html: '<div class="user-gps-pulse"></div><div class="user-gps-dot"></div>',
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+        });
+
+        if (!state.userMarker) {
+            state.userMarker = L.marker([lat, lng], { icon: gpsIcon, zIndexOffset: 1000 }).addTo(state.map);
+            state.userMarker.bindPopup('<b>📍 ตำแหน่งปัจจุบันของคุณ</b>');
+        } else {
+            state.userMarker.setLatLng([lat, lng]);
+        }
+    }
+
+    /**
+     * Update Live Distance to Current Destination
+     */
+    function updateLiveDistance() {
+        const liveDistEl = document.getElementById('nav-live-distance');
+        if (!liveDistEl) return;
+
+        const currentStep = state.steps[state.currentIndex];
+        if (!currentStep) return;
+
+        if (state.userLocation) {
+            const distKm = calculateDistanceKm(
+                state.userLocation.lat,
+                state.userLocation.lng,
+                currentStep.lat,
+                currentStep.lng
+            );
+            liveDistEl.innerText = formatDistance(distKm);
+        } else if (currentStep.realDistKm) {
+            liveDistEl.innerText = `${currentStep.realDistKm.toFixed(1)} กม.`;
+        } else {
+            liveDistEl.innerText = '--';
+        }
+    }
+
+    /**
+     * Update the Navigation HUD UI and highlights
+     */
+    function updateStepUI() {
+        if (!state.isActive || state.steps.length === 0) return;
+
+        const currentStep = state.steps[state.currentIndex];
+        const totalSteps = state.steps.length;
+
+        // Elements
+        const countEl = document.getElementById('nav-step-count');
+        const progressBar = document.getElementById('nav-progress-bar');
+        const titleEl = document.getElementById('nav-dest-title');
+        const tagEl = document.getElementById('nav-dest-tag');
+        const imgEl = document.getElementById('nav-dest-img');
+        const timeEl = document.getElementById('nav-dest-time');
+        const stayEl = document.getElementById('nav-dest-stay');
+        const prevBtn = document.getElementById('nav-btn-prev');
+        const nextBtn = document.getElementById('nav-btn-next');
+
+        if (countEl) countEl.innerText = `จุดที่ ${state.currentIndex + 1}/${totalSteps}`;
+        if (progressBar) progressBar.style.width = `${((state.currentIndex + 1) / totalSteps) * 100}%`;
+        if (titleEl) titleEl.innerText = currentStep.name;
+        if (tagEl) tagEl.innerText = currentStep.category || 'สถานที่ท่องเที่ยว';
+        if (imgEl) imgEl.src = currentStep.image || 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=300';
+        if (timeEl) timeEl.innerText = currentStep.arrivalStr || '--:--';
+        if (stayEl) stayEl.innerText = currentStep.stayTime || 0;
+
+        if (prevBtn) prevBtn.disabled = (state.currentIndex === 0);
+
+        if (nextBtn) {
+            if (state.currentIndex === totalSteps - 1) {
+                nextBtn.innerHTML = '<span>🏁 สิ้นสุดทริป</span> <i class="fa-solid fa-flag-checkered"></i>';
+                nextBtn.style.background = 'linear-gradient(135deg, #3B82F6, #1D4ED8)';
+            } else {
+                nextBtn.innerHTML = '<span>ถึงแล้ว / ถัดไป</span> <i class="fa-solid fa-arrow-right"></i>';
+                nextBtn.style.background = 'linear-gradient(135deg, #10B981, #059669)';
+            }
+        }
+
+        updateLiveDistance();
+        highlightItineraryInDOM();
+        highlightCurrentRouteSegment();
+        focusCurrentStepOnMap();
+    }
+
+    /**
+     * Highlight only the active route segment and hide the rest
+     */
+    function highlightCurrentRouteSegment() {
+        if (typeof routeLines === 'undefined' || !routeLines) return;
+        
+        routeLines.forEach((line, idx) => {
+            if (idx === state.currentIndex) {
+                // Show active segment
+                if (state.map && !state.map.hasLayer(line)) {
+                    line.addTo(state.map);
+                }
+                if (line.options) {
+                    line.setStyle({ opacity: 1, weight: 8 });
+                }
+                if (line.bringToFront) {
+                    line.bringToFront();
+                }
+            } else {
+                // Hide inactive segment
+                if (state.map && state.map.hasLayer(line)) {
+                    line.removeFrom(state.map);
+                }
+            }
+        });
+    }
+
+    /**
+     * Highlight current and completed items in the itinerary sidebar list
+     */
+    function highlightItineraryInDOM() {
+        const items = document.querySelectorAll('.itinerary-item');
+        items.forEach((item, idx) => {
+            item.classList.remove('nav-item-active', 'nav-item-completed');
+            
+            // Remove existing status pill if any
+            const existingPill = item.querySelector('.nav-status-pill');
+            if (existingPill) existingPill.remove();
+
+            if (idx === state.currentIndex) {
+                item.classList.add('nav-item-active');
+                const pill = document.createElement('div');
+                pill.className = 'nav-status-pill active';
+                pill.innerHTML = '<i class="fa-solid fa-location-arrow fa-beat-fade"></i> กำลังเดินทางไปที่นี่';
+                item.appendChild(pill);
+                
+                // Scroll into view gently if sidebar is visible
+                item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } else if (idx < state.currentIndex) {
+                item.classList.add('nav-item-completed');
+                const pill = document.createElement('div');
+                pill.className = 'nav-status-pill completed';
+                pill.innerHTML = '<i class="fa-solid fa-check"></i> ถึงแล้ว';
+                item.appendChild(pill);
+            }
+        });
+    }
+
+    /**
+     * Fit map to show ALL steps (route overview)
+     */
+    function fitAllStepsOnMap() {
+        if (!state.map || typeof L === 'undefined' || state.steps.length === 0) return;
+
+        try {
+            const allLatLngs = state.steps
+                .filter(s => s.lat && s.lng)
+                .map(s => [s.lat, s.lng]);
+
+            // เพิ่ม startCoords ถ้ามี
+            if (typeof startCoords !== 'undefined' && startCoords && startCoords.lat) {
+                allLatLngs.push([startCoords.lat, startCoords.lng]);
+            }
+
+            if (allLatLngs.length > 0) {
+                const bounds = L.latLngBounds(allLatLngs);
+                if (bounds.isValid()) {
+                    state.map.fitBounds(bounds, {
+                        padding: [60, 60],
+                        maxZoom: 14,
+                        animate: true,
+                        duration: 1
+                    });
+                }
+            }
+        } catch(e) { console.warn('fitAllStepsOnMap error:', e); }
+    }
+
+    /**
+     * Focus and Pan Map to Current Step
+     */
+    function focusCurrentStepOnMap() {
+        if (!state.map || typeof L === 'undefined') return;
+
+        const currentStep = state.steps[state.currentIndex];
+        if (!currentStep) return;
+
+        // invalidateSize ก่อนเสมอ เผื่อ container เพิ่งโชว์
+        state.map.invalidateSize();
+
+        // If user location is known, frame between user and target
+        if (state.userLocation) {
+            const bounds = L.latLngBounds([
+                [state.userLocation.lat, state.userLocation.lng],
+                [currentStep.lat, currentStep.lng]
+            ]);
+            state.map.fitBounds(bounds, {
+                padding: [70, 70],
+                maxZoom: 16,
+                animate: true
+            });
+        } else {
+            // ไม่มี GPS: แสดง overview ระหว่างจุดปัจจุบันกับจุดถัดไป
+            const nextStep = state.steps[state.currentIndex + 1];
+            if (nextStep && nextStep.lat) {
+                const bounds = L.latLngBounds([
+                    [currentStep.lat, currentStep.lng],
+                    [nextStep.lat, nextStep.lng]
+                ]);
+                state.map.fitBounds(bounds, {
+                    padding: [80, 80],
+                    maxZoom: 15,
+                    animate: true
+                });
+            } else {
+                state.map.flyTo([currentStep.lat, currentStep.lng], 15, {
+                    animate: true,
+                    duration: 0.8
+                });
+            }
+        }
+    }
+
+    /**
+     * Move to next step in the journey
+     */
+    function nextStep() {
+        if (!state.isActive) return;
+
+        if (state.currentIndex < state.steps.length - 1) {
+            state.currentIndex++;
+            updateStepUI();
+        } else {
+            // Reached the end!
+            showCompletedModal();
+        }
+    }
+
+    /**
+     * Move to previous step
+     */
+    function prevStep() {
+        if (!state.isActive) return;
+
+        if (state.currentIndex > 0) {
+            state.currentIndex--;
+            updateStepUI();
+        }
+    }
+
+    /**
+     * Open Google Maps Turn-by-Turn Navigation for the current target stop
+     */
+    function openGoogleMaps() {
+        if (!state.isActive || state.steps.length === 0) return;
+        const currentStep = state.steps[state.currentIndex];
+        if (!currentStep) return;
+
+        // Format Google Maps Navigation URL
+        const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${currentStep.lat},${currentStep.lng}&travelmode=driving`;
+        window.open(gmapsUrl, '_blank');
+    }
+
+    /**
+     * Show celebration modal when all places are visited
+     */
+    function showCompletedModal() {
+        const modal = document.getElementById('nav-completed-modal');
+        if (!modal) return;
+
+        const placesCount = state.steps.filter(s => !s.isEndLocation).length;
+        const statPlaces = document.getElementById('nav-stat-places');
+        const statDist = document.getElementById('nav-stat-distance');
+        const statTime = document.getElementById('nav-stat-time');
+
+        if (statPlaces) statPlaces.innerText = `${placesCount} แห่ง`;
+        if (statDist) {
+            const distEl = document.getElementById('summary-distance');
+            statDist.innerText = distEl ? distEl.innerText : `${state.totalDistanceKm || '--'} กม.`;
+        }
+        if (statTime) {
+            const timeEl = document.getElementById('summary-time');
+            statTime.innerText = timeEl ? timeEl.innerText : `${state.totalTimeMinutes || '--'} น.`;
+        }
+
+        modal.style.display = 'flex';
+    }
+
+    /**
+     * Close completed modal and exit navigation mode
+     */
+    function closeCompletedModal() {
+        const modal = document.getElementById('nav-completed-modal');
+        if (modal) modal.style.display = 'none';
+        stop();
+    }
+
+    /**
+     * Stop Navigation and return to normal view
+     */
+    function stop() {
+        state.isActive = false;
+        stopLocationWatcher();
+
+        // Hide Navigation Overlay
+        const overlay = document.getElementById('trip-navigation-overlay');
+        if (overlay) overlay.style.display = 'none';
+
+        // Clear highlight styles
+        const items = document.querySelectorAll('.itinerary-item');
+        items.forEach(item => {
+            item.classList.remove('nav-item-active', 'nav-item-completed');
+            const pill = item.querySelector('.nav-status-pill');
+            if (pill) pill.remove();
+        });
+
+        // Restore all route lines
+        if (typeof routeLines !== 'undefined' && routeLines) {
+            routeLines.forEach(line => {
+                if (state.map && !state.map.hasLayer(line)) {
+                    line.addTo(state.map);
+                }
+                if (line.options) {
+                    const isDashed = line.options.dashArray ? true : false;
+                    line.setStyle({ 
+                        opacity: isDashed ? 0.8 : 0.9, 
+                        weight: isDashed ? 5 : 6 
+                    });
+                }
+            });
+        }
+
+        // If map exists, zoom out to full route if bounds available
+        if (state.map && typeof routeLines !== 'undefined' && routeLines && routeLines.length > 0) {
+            try {
+                const group = new L.featureGroup(routeLines);
+                state.map.fitBounds(group.getBounds(), { padding: [40, 40] });
+            } catch(e) {}
+        }
+    }
+
+    return {
+        start,
+        stop,
+        nextStep,
+        prevStep,
+        openGoogleMaps,
+        showCompletedModal,
+        closeCompletedModal,
+        getState: () => state
+    };
+})();

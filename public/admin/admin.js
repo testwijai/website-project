@@ -172,7 +172,6 @@ function openModal() {
     document.getElementById('place-id').value = '';
     document.getElementById('place-opening-hours').value = '08:00 - 18:00 น.';
     document.getElementById('place-rating').value = '4.5';
-    document.getElementById('place-time').value = '60';
     document.getElementById('image-preview-container').style.display = 'none';
     document.getElementById('modal-title').innerHTML = '<i class="fa-solid fa-plus-circle"></i> เพิ่มสถานที่ใหม่';
     modal.style.display = 'block';
@@ -207,7 +206,6 @@ function editPlace(id) {
     document.getElementById('place-rating').value = place.rating || 4.5;
     document.getElementById('place-lat').value = place.latitude !== undefined ? place.latitude : place.lat;
     document.getElementById('place-lng').value = place.longitude !== undefined ? place.longitude : place.lng;
-    document.getElementById('place-time').value = place.time_spent || place.timeSpent || 60;
 
     previewImage(place.image);
 
@@ -222,6 +220,9 @@ async function saveFormData() {
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังบันทึก...';
 
+    const existingPlace = id ? placesData.find(p => String(p.id) === String(id)) : null;
+    const defaultTimeSpent = (existingPlace && (existingPlace.time_spent || existingPlace.timeSpent)) || 60;
+
     const payload = {
         name: document.getElementById('place-name').value.trim(),
         category: document.getElementById('place-category').value,
@@ -233,8 +234,8 @@ async function saveFormData() {
         opening_hours: document.getElementById('place-opening-hours').value.trim(),
         rating: parseFloat(document.getElementById('place-rating').value),
         image: document.getElementById('place-image').value.trim(),
-        time_spent: parseInt(document.getElementById('place-time').value),
-        timeSpent: parseInt(document.getElementById('place-time').value)
+        time_spent: defaultTimeSpent,
+        timeSpent: defaultTimeSpent
     };
 
     try {
