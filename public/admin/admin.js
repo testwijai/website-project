@@ -222,10 +222,19 @@ function editPlace(id) {
     document.getElementById('place-lng').value = place.longitude !== undefined ? place.longitude : place.lng;
 
     // เซ็ต checkbox วันที่เปิดทำการ
-    const openDaysList = (place.open_days || '0,1,2,3,4,5,6').split(',').map(d => d.trim());
+    const rawOpenDays = place.open_days;
+    console.log(`[editPlace] id=${id} | open_days from API: "${rawOpenDays}"`);
+
+    const openDaysList = (rawOpenDays || '0,1,2,3,4,5,6')
+        .split(',')
+        .map(d => String(d).trim())
+        .filter(d => d !== '');
+
     document.querySelectorAll('input[name="open_day"]').forEach(cb => {
-        cb.checked = openDaysList.includes(cb.value);
+        cb.checked = openDaysList.includes(String(cb.value));
     });
+
+    console.log(`[editPlace] openDaysList: [${openDaysList}] | checkboxes set`);
 
     previewImage(place.image);
 
@@ -243,9 +252,15 @@ async function saveFormData() {
     const existingPlace = id ? placesData.find(p => String(p.id) === String(id)) : null;
     const defaultTimeSpent = (existingPlace && (existingPlace.time_spent || existingPlace.timeSpent)) || 60;
 
-    // อ่าน open_days จาก checkboxes
-    const checkedDays = Array.from(document.querySelectorAll('input[name="open_day"]:checked')).map(cb => cb.value);
+    // อ่าน open_days จาก checkboxes และ sort ให้เป็นระเบียบก่อน join
+    const checkedDays = Array.from(document.querySelectorAll('input[name="open_day"]:checked'))
+        .map(cb => parseInt(cb.value, 10))
+        .filter(v => !isNaN(v))
+        .sort((a, b) => a - b)
+        .map(v => String(v));
     const finalOpenDays = checkedDays.length > 0 ? checkedDays.join(',') : '0,1,2,3,4,5,6';
+
+    console.log(`[saveFormData] id=${id || '(new)'} | open_days to send: "${finalOpenDays}"`);
 
     const payload = {
         name: document.getElementById('place-name').value.trim(),
@@ -263,7 +278,21 @@ async function saveFormData() {
         timeSpent: defaultTimeSpent
     };
 
+    console.log('[saveFormData] payload:', JSON.stringify(payload));
+
     try {
+        // ลอง fetch ใหม่ถ้า isServerOnline ยังเป็น false (เช่น server Render เพิ่งตื่น)
+        if (!isServerOnline) {
+            try {
+                const healthRes = await fetch(`${API_BASE_URL}/health`);
+                const healthData = await healthRes.json();
+                if (healthRes.ok && healthData.database === 'connected') {
+                    isServerOnline = true;
+                    console.log('[saveFormData] Server came online, switching to API mode');
+                }
+            } catch (_) { /* ยังออฟไลน์อยู่ */ }
+        }
+
         if (isServerOnline) {
             let res;
             if (id) {
@@ -283,6 +312,7 @@ async function saveFormData() {
             }
 
             const resData = await res.json();
+            console.log('[saveFormData] API response:', resData);
             if (!res.ok) throw new Error(resData.message || 'บันทึกข้อมูลไม่สำเร็จ');
 
             showToast(id ? '✅ แก้ไขข้อมูลลง PostgreSQL สำเร็จ' : '✅ เพิ่มสถานที่ใหม่ลง PostgreSQL สำเร็จ');
@@ -304,6 +334,7 @@ async function saveFormData() {
 
         closeModal();
     } catch (err) {
+        console.error('[saveFormData] Error:', err);
         alert('เกิดข้อผิดพลาดในการบันทึก: ' + err.message);
     } finally {
         saveBtn.disabled = false;

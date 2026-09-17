@@ -45,13 +45,17 @@ async function initDatabase() {
                 rating NUMERIC(2, 1) DEFAULT 4.5,
                 image TEXT,
                 time_spent INTEGER DEFAULT 60,
-                open_days VARCHAR(20) DEFAULT '0,1,2,3,4,5,6',
+                open_days VARCHAR(50) DEFAULT '0,1,2,3,4,5,6',
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
         `);
         // เพิ่ม column open_days ถ้ายังไม่มี (สำหรับ DB ที่มีอยู่แล้ว)
         await pool.query(`
-            ALTER TABLE places ADD COLUMN IF NOT EXISTS open_days VARCHAR(20) DEFAULT '0,1,2,3,4,5,6';
+            ALTER TABLE places ADD COLUMN IF NOT EXISTS open_days VARCHAR(50) DEFAULT '0,1,2,3,4,5,6';
+        `);
+        // อัปเดต open_days ที่เป็น null ให้ใช้ค่า default
+        await pool.query(`
+            UPDATE places SET open_days = '0,1,2,3,4,5,6' WHERE open_days IS NULL OR open_days = '';
         `);
         console.log('✅ ตรวจสอบตาราง places ใน PostgreSQL เรียบร้อย');
 
@@ -87,15 +91,15 @@ async function initDatabase() {
         if (parseInt(countRes.rows[0].count) === 0) {
             console.log('🌱 กำลังเพิ่มข้อมูลสถานที่เริ่มต้นลงในฐานข้อมูล...');
             const seedQuery = `
-                INSERT INTO places (name, category, description, latitude, longitude, opening_hours, rating, image, time_spent)
+                INSERT INTO places (name, category, description, latitude, longitude, opening_hours, open_days, rating, image, time_spent)
                 VALUES 
-                ('พระมหาธาตุแก่นนคร (บึงแก่นนคร)', 'วัด/สถานที่ศักดิ์สิทธิ์', 'พระธาตุ 9 ชั้นที่สวยงามและเป็นสัญลักษณ์ของจังหวัดขอนแก่น มองเห็นวิวเมืองและบึงแก่นนครแบบ 360 องศา', 16.4172, 102.8344, '07:00 - 17:00 น.', 4.8, 'https://images.unsplash.com/photo-1590766940554-638092019c00?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80', 60),
-                ('พิพิธภัณฑสถานแห่งชาติ ขอนแก่น', 'พิพิธภัณฑ์', 'แหล่งเรียนรู้ประวัติศาสตร์ โบราณคดี และศิลปวัฒนธรรมที่สำคัญของภาคอีสาน', 16.4402, 102.8362, '09:00 - 16:00 น. (ปิดจันทร์-อังคาร)', 4.5, 'https://images.unsplash.com/photo-1541336032412-2048a678540d?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80', 90),
-                ('ตลาดต้นตาล (Ton Tann Market)', 'ตลาด/ช้อปปิ้ง', 'ตลาดนัดกลางคืนสุดชิค รวมอาหารอร่อย สินค้าแฟชั่น และดนตรีสด', 16.4184, 102.8156, '16:00 - 23:00 น.', 4.7, 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80', 120),
-                ('สวนสัตว์ขอนแก่น (เขาสวนกวาง)', 'ธรรมชาติ/สวนสัตว์', 'สวนสัตว์ขนาดใหญ่ท่ามกลางธรรมชาติ มี Sky walk ชมวิวสัตว์นานาชนิด', 16.8524, 102.8808, '08:00 - 16:30 น.', 4.6, 'https://images.unsplash.com/photo-1534567153574-2b12153a87f0?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80', 180),
-                ('บึงสีฐาน มหาวิทยาลัยขอนแก่น', 'ธรรมชาติ', 'สถานที่พักผ่อนหย่อนใจ ลานศิลปวัฒนธรรม และจุดชมพระอาทิตย์ตกริมน้ำ', 16.4468, 102.8252, 'เปิด 24 ชั่วโมง', 4.5, 'https://images.unsplash.com/photo-1506744626753-1fa44f4a4df2?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80', 60),
-                ('Columbo Craft Village', 'คาเฟ่/ถ่ายรูป', 'หมู่บ้านงานคราฟต์สุดชิค บรรยากาศร่มรื่น คาเฟ่ เวิร์กช็อปศิลปะ', 16.4747, 102.8183, '09:00 - 18:00 น. (ปิดวันอังคาร)', 4.4, 'https://images.unsplash.com/photo-1524143986875-3b098d78b363?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80', 90),
-                ('อุทยานแห่งชาติภูเวียง', 'ธรรมชาติ', 'แหล่งค้นพบซากฟอสซิลไดโนเสาร์แห่งแรกของไทย ธรรมชาติร่มรื่น', 16.6667, 102.2500, '08:30 - 16:30 น.', 4.7, 'https://images.unsplash.com/photo-1518091043644-c1d44579d2c1?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80', 240);
+                ('พระมหาธาตุแก่นนคร (บึงแก่นนคร)', 'วัด/สถานที่ศักดิ์สิทธิ์', 'พระธาตุ 9 ชั้นที่สวยงามและเป็นสัญลักษณ์ของจังหวัดขอนแก่น มองเห็นวิวเมืองและบึงแก่นนครแบบ 360 องศา', 16.4172, 102.8344, '07:00 - 17:00 น.', '0,1,2,3,4,5,6', 4.8, 'https://images.unsplash.com/photo-1590766940554-638092019c00?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80', 60),
+                ('พิพิธภัณฑสถานแห่งชาติ ขอนแก่น', 'พิพิธภัณฑ์', 'แหล่งเรียนรู้ประวัติศาสตร์ โบราณคดี และศิลปวัฒนธรรมที่สำคัญของภาคอีสาน', 16.4402, 102.8362, '09:00 - 16:00 น. (ปิดจันทร์-อังคาร)', '3,4,5,6,0', 4.5, 'https://images.unsplash.com/photo-1541336032412-2048a678540d?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80', 90),
+                ('ตลาดต้นตาล (Ton Tann Market)', 'ตลาด/ช้อปปิ้ง', 'ตลาดนัดกลางคืนสุดชิค รวมอาหารอร่อย สินค้าแฟชั่น และดนตรีสด', 16.4184, 102.8156, '16:00 - 23:00 น.', '0,1,2,3,4,5,6', 4.7, 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80', 120),
+                ('สวนสัตว์ขอนแก่น (เขาสวนกวาง)', 'ธรรมชาติ/สวนสัตว์', 'สวนสัตว์ขนาดใหญ่ท่ามกลางธรรมชาติ มี Sky walk ชมวิวสัตว์นานาชนิด', 16.8524, 102.8808, '08:00 - 16:30 น.', '0,1,2,3,4,5,6', 4.6, 'https://images.unsplash.com/photo-1534567153574-2b12153a87f0?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80', 180),
+                ('บึงสีฐาน มหาวิทยาลัยขอนแก่น', 'ธรรมชาติ', 'สถานที่พักผ่อนหย่อนใจ ลานศิลปวัฒนธรรม และจุดชมพระอาทิตย์ตกริมน้ำ', 16.4468, 102.8252, 'เปิด 24 ชั่วโมง', '0,1,2,3,4,5,6', 4.5, 'https://images.unsplash.com/photo-1506744626753-1fa44f4a4df2?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80', 60),
+                ('Columbo Craft Village', 'คาเฟ่/ถ่ายรูป', 'หมู่บ้านงานคราฟต์สุดชิค บรรยากาศร่มรื่น คาเฟ่ เวิร์กช็อปศิลปะ', 16.4747, 102.8183, '09:00 - 18:00 น. (ปิดวันอังคาร)', '0,3,4,5,6', 4.4, 'https://images.unsplash.com/photo-1524143986875-3b098d78b363?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80', 90),
+                ('อุทยานแห่งชาติภูเวียง', 'ธรรมชาติ', 'แหล่งค้นพบซากฟอสซิลไดโนเสาร์แห่งแรกของไทย ธรรมชาติร่มรื่น', 16.6667, 102.2500, '08:30 - 16:30 น.', '0,1,2,3,4,5,6', 4.7, 'https://images.unsplash.com/photo-1518091043644-c1d44579d2c1?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80', 240);
             `;
             await pool.query(seedQuery);
             console.log('✅ เพิ่มข้อมูลเริ่มต้น 7 สถานที่เรียบร้อย');
@@ -254,7 +258,9 @@ app.put('/api/places/:id', async (req, res) => {
         const finalLng = parseFloat(longitude !== undefined ? longitude : lng);
         const finalTime = parseInt(time_spent !== undefined ? time_spent : (timeSpent || 60));
         const finalHours = opening_hours || openingHours || '08:00 - 18:00 น.';
-        const finalOpenDays = open_days || '0,1,2,3,4,5,6';
+        const finalOpenDays = (open_days !== undefined && open_days !== null && String(open_days).trim() !== '')
+            ? String(open_days).trim()
+            : '0,1,2,3,4,5,6';
         const finalRating = parseFloat(rating) || 4.5;
 
         const query = `
