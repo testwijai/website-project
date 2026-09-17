@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- State ---
     let allPlaces = getPlaces();
-    let currentCat = 'ทั้งหมด';
+    let selectedCats = new Set(); // empty or 'ทั้งหมด' means all
     let currentSearch = '';
     let currentSort = 'rating';
     const favorites = JSON.parse(localStorage.getItem('kk_favorites') || '[]');
@@ -37,8 +37,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function getFiltered() {
         let list = [...allPlaces];
 
-        if (currentCat !== 'ทั้งหมด') {
-            list = list.filter(p => p.category === currentCat);
+        if (selectedCats.size > 0 && !selectedCats.has('ทั้งหมด')) {
+            list = list.filter(p => selectedCats.has(p.category));
         }
         if (currentSearch.trim()) {
             const q = currentSearch.toLowerCase().trim();
@@ -123,11 +123,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Event Listeners ---
+    const allBtn = document.querySelector('.filter-btn[data-cat="ทั้งหมด"]');
+
     filterBtns.forEach(btn => {
         btn.addEventListener('click', () => {
-            filterBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            currentCat = btn.dataset.cat;
+            const cat = btn.dataset.cat;
+            if (cat === 'ทั้งหมด') {
+                selectedCats.clear();
+                filterBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            } else {
+                if (allBtn) allBtn.classList.remove('active');
+                selectedCats.delete('ทั้งหมด');
+
+                if (selectedCats.has(cat)) {
+                    selectedCats.delete(cat);
+                    btn.classList.remove('active');
+                } else {
+                    selectedCats.add(cat);
+                    btn.classList.add('active');
+                }
+
+                // ถ้าไม่ได้เลือกหมวดหมู่ใดเลย ให้กลับไปเลือก "ทั้งหมด" อัตโนมัติ
+                if (selectedCats.size === 0) {
+                    if (allBtn) allBtn.classList.add('active');
+                }
+            }
             renderPlaces();
         });
     });

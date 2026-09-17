@@ -4,32 +4,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>เที่ยวขอนแก่น - Khon Kaen Explorer</title>
+    <title>KaenGuide - ให้เราช่วยวางแผนทริปให้คุณ แล้วออกเดินทางได้เลย | เที่ยวขอนแก่น</title>
+    <meta name="description" content="KaenGuide แพลตฟอร์มวางแผนท่องเที่ยวขอนแก่น วางแผนทริปอัตโนมัติ จัดเส้นทางอย่างลงตัว ค้นพบสถานที่ท่องเที่ยวเด็ดในขอนแก่น">
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=10">
+    <link rel="stylesheet" href="../mobile-nav.css?v=10">
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 
-<body>
+<body class="home-page">
     <script src="../data.js"></script>
 
+    <!-- Top Reading Progress Indicator -->
+    <div class="scroll-progress-bar" id="scrollProgressBar"></div>
+
+    <!-- Navigation -->
     <nav class="navbar">
         <div class="logo">
             <i class="fa-solid fa-map-location-dot"></i>
             <div class="logo-text">
-                <span class="brand">Khon Kaen Explorer</span>
-                <span class="tagline">เที่ยวขอนแก่น...ให้เป็นมากกว่าการเดินทาง</span>
+                <span class="brand">KaenGuide</span>
             </div>
         </div>
         <div class="nav-links">
             <a href="#" class="active">หน้าแรก</a>
-            <a href="../tripplaner/index.html">จัดแผนอัตโนมัติ</a>
-            <a href="../customplan/index.html">จัดทริปด้วยตัวเอง</a>
+            <a href="../tripplaner/index.html">วางแผนอัตโนมัติ</a>
+            <a href="../customplan/index.html">วางแผนด้วยตัวเอง</a>
             <a href="../places/index.html">สถานที่ท่องเที่ยว</a>
             <a href="../about/index.html">เกี่ยวกับเรา</a>
         </div>
         <div class="nav-actions">
+            <a href="../tripplaner/index.html" class="login-btn"><i class="fa-solid fa-route"></i> วางแผนทริป</a>
         </div>
         <button class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="เปิดเมนู">
             <span class="bar"></span>
@@ -38,27 +44,207 @@
         </button>
     </nav>
 
-    <header class="hero">
-        <div class="hero-overlay"></div>
-        <div class="hero-content fade-up">
-            <h1>รอยก้าวไดโนเสาร์<br>ก่อนเป็นเส้นทางของคุณ</h1>
-            <a href="../tripplaner/index.html" class="hero-search-btn">วางแผนทริป</a>
+    <!-- Hero Section with 3D Mountain Parallax & KHONKAEN Behind Mountain -->
+    <header class="hero" id="heroSection">
+        <!-- Layer 1: Sky & Valley Base Background -->
+        <div class="hero-bg-layer hero-bg-base" id="heroBgBase"></div>
+
+        <!-- Layer 2: Big 3D Typography KHONKAEN Behind Mountain Ridge -->
+        <div class="hero-behind-text" id="heroBehindText" aria-hidden="true">
+            <span>KHONKAEN</span>
         </div>
+
+        <!-- Layer 3: Foreground Mountain Cliff Ridge (Text sits behind this layer) -->
+        <div class="hero-mountain-layer hero-mountain-fg" id="heroMountainFg"></div>
+
+        <!-- Layer 4: Atmosphere Overlay -->
+        <div class="hero-overlay"></div>
+
+        <!-- Layer 5: Hero Content (Badge, Heading, Action Buttons) -->
+        <div class="hero-content fade-up" id="heroContent">
+            <div class="hero-brand-badge">
+                <i class="fa-solid fa-map-location-dot"></i>
+                <span class="brand-text">KaenGuide</span>
+            </div>
+            <h1><span class="hero-title-line">ให้เราช่วยวางแผนทริปให้คุณ</span><br><span class="hero-highlight">แล้วออกเดินทางได้เลย</span></h1>
+
+            <!-- Hero Action Buttons -->
+            <div class="hero-action-buttons">
+                <a href="../tripplaner/index.html" class="hero-btn-primary">
+                    <i class="fa-solid fa-route"></i> วางแผนอัตโนมัติ
+                </a>
+                <a href="../customplan/index.html" class="hero-btn-secondary">
+                    <i class="fa-solid fa-pen-ruler"></i> วางแผนด้วยตัวเอง
+                </a>
+            </div>
+
+            <!-- Floating Stats Bar -->
+            <div class="hero-stats-strip">
+                <div class="stat-pill">
+                    <div class="stat-icon"><i class="fa-solid fa-map-pin"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-number">50+</span>
+                        <span class="stat-label">จุดเช็คอินยอดนิยม</span>
+                    </div>
+                </div>
+                <div class="stat-pill">
+                    <div class="stat-icon"><i class="fa-solid fa-map-location-dot"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-number">อัตโนมัติ</span>
+                        <span class="stat-label">คำนวณเส้นทางและเวลา</span>
+                    </div>
+                </div>
+                <div class="stat-pill">
+                    <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-number">ใช้งานฟรี</span>
+                        <span class="stat-label">ไม่มีค่าใช้จ่าย</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Interactive Scroll Down Cue -->
+        <a href="#recommendationsSection" class="hero-scroll-cue" id="heroScrollCue" aria-label="เลื่อนลงเพื่อสำรวจ">
+            <span class="scroll-cue-mouse">
+                <span class="scroll-cue-wheel"></span>
+            </span>
+            <span class="scroll-cue-text">เลื่อนลงเพื่อสำรวจ</span>
+            <i class="fa-solid fa-chevron-down scroll-cue-arrow"></i>
+        </a>
     </header>
 
+    <!-- Popular Destinations Showcase (Directly below Hero) -->
+    <section class="recommendations" id="recommendationsSection">
+        <div class="section-header-flex fade-up">
+            <div>
+                <h2 class="recommendations-title">สถานที่ท่องเที่ยวยอดนิยมในขอนแก่น</h2>
+                <p class="recommendations-subtitle">จุดเช็คอินแนะนำที่ไม่ควรพลาดเมื่อมาเยือนขอนแก่น</p>
+            </div>
+            <a href="../places/index.html" class="view-all">
+                ดูสถานที่ทั้งหมด <i class="fa-solid fa-arrow-right"></i>
+            </a>
+        </div>
 
+        <!-- Filter Pills -->
+        <div class="category-filter-modern fade-up">
+            <button class="cat-pill-btn active" data-cat="ทั้งหมด"><i class="fa-solid fa-border-all"></i> ทั้งหมด</button>
+            <button class="cat-pill-btn" data-cat="วัด/สถานที่ศักดิ์สิทธิ์"><i class="fa-solid fa-place-of-worship"></i> วัด & สถานที่ศักดิ์สิทธิ์</button>
+            <button class="cat-pill-btn" data-cat="ธรรมชาติ"><i class="fa-solid fa-tree"></i> ธรรมชาติ</button>
+            <button class="cat-pill-btn" data-cat="คาเฟ่/ถ่ายรูป"><i class="fa-solid fa-mug-saucer"></i> คาเฟ่ & ถ่ายรูป</button>
+            <button class="cat-pill-btn" data-cat="ตลาด/ช้อปปิ้ง"><i class="fa-solid fa-bag-shopping"></i> ตลาด & ช้อปปิ้ง</button>
+            <button class="cat-pill-btn" data-cat="พิพิธภัณฑ์"><i class="fa-solid fa-landmark"></i> พิพิธภัณฑ์</button>
+        </div>
 
+        <!-- Dynamic Places Grid / Carousel -->
+        <div class="places-dynamic-grid" id="popularPlacesGrid">
+            <!-- Rendered by JavaScript -->
+        </div>
+    </section>
 
+    <!-- Core Features Section -->
+    <section class="section-features">
+        <div class="section-header-center fade-up">
+            <h2 class="section-title">วางแผนเที่ยวขอนแก่น ง่ายในทุกขั้นตอน</h2>
+            <p class="section-desc">
+                รวบรวมเส้นทาง เวลา และพิกัดสถานที่ท่องเที่ยวในขอนแก่นไว้ในที่เดียว เที่ยวได้สะดวกและมั่นใจยิ่งขึ้น
+            </p>
+        </div>
 
+        <div class="features-grid-modern">
+            <div class="feature-modern-card fade-up">
+                <div class="feature-card-icon feature-icon-ai">
+                    <i class="fa-solid fa-route"></i>
+                </div>
+                <h3 class="feature-card-title">จัดลำดับเส้นทาง</h3>
+                <p class="feature-card-text">
+                    จัดลำดับสถานที่แวะตามระยะทางจริง ช่วยประหยัดเวลาเดินทาง ไม่ต้องขับรถวนไปมา
+                </p>
+            </div>
 
+            <div class="feature-modern-card fade-up" style="transition-delay: 0.1s;">
+                <div class="feature-card-icon feature-icon-custom">
+                    <i class="fa-solid fa-sliders"></i>
+                </div>
+                <h3 class="feature-card-title">ปรับแต่งได้ดั่งใจ</h3>
+                <p class="feature-card-text">
+                    เพิ่ม ลบ หรือสลับลำดับสถานที่ได้อิสระตามความชอบของคุณ กำหนดเวลาแวะแต่ละจุดได้เอง
+                </p>
+            </div>
 
+            <div class="feature-modern-card fade-up" style="transition-delay: 0.2s;">
+                <div class="feature-card-icon feature-icon-nav">
+                    <i class="fa-solid fa-location-arrow"></i>
+                </div>
+                <h3 class="feature-card-title">นำทางจุดต่อจุด</h3>
+                <p class="feature-card-text">
+                    มีแผนที่พร้อมพิกัดชัดเจน และสามารถเปิดนำทางผ่าน Google Maps ได้ทันที
+                </p>
+            </div>
+
+            <div class="feature-modern-card fade-up" style="transition-delay: 0.3s;">
+                <div class="feature-card-icon feature-icon-spots">
+                    <i class="fa-solid fa-map-location-dot"></i>
+                </div>
+                <h3 class="feature-card-title">ข้อมูลสถานที่ครบครัน</h3>
+                <p class="feature-card-text">
+                    รวบรวมสถานที่ท่องเที่ยวทั้งวัด ธรรมชาติ คาเฟ่ ตลาด และแหล่งเรียนรู้สำคัญทั่วขอนแก่น
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Call to Action Banner -->
+    <section class="section-cta fade-up">
+        <div class="cta-banner-modern">
+            <div class="cta-content">
+                <h2 class="cta-title">พร้อมออกไปสัมผัสขอนแก่นแล้วหรือยัง?</h2>
+                <p class="cta-desc">
+                    ให้ KaenGuide ช่วยจัดการเรื่องเส้นทาง เพื่อให้คุณเพลิดเพลินกับการท่องเที่ยวได้อย่างเต็มที่ ใช้งานฟรี ไม่ต้องดาวน์โหลดแอปพลิเคชัน
+                </p>
+                <div class="cta-actions">
+                    <a href="../tripplaner/index.html" class="btn-cta-primary">
+                        <i class="fa-solid fa-route"></i> วางแผนอัตโนมัติ
+                    </a>
+                    <a href="../places/index.html" class="btn-cta-outline">
+                        <i class="fa-solid fa-magnifying-glass"></i> ค้นหาสถานที่เที่ยว
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Mobile Floating Action Button -->
+    <a href="../tripplaner/index.html" class="mobile-fab-planner" aria-label="เริ่มวางแผนทริป">
+        <i class="fa-solid fa-route"></i> วางแผนทริป
+    </a>
+
+    <!-- Modern Footer -->
     <footer>
-        <p>&copy; 2026 Khon Kaen Explorer. All Rights Reserved. · <a href="../admin/login.html" style="color: inherit; opacity: 0.6; text-decoration: none;"><i class="fa-solid fa-lock"></i> ระบบแอดมิน</a></p>
+        <div style="max-width: 1200px; margin: 0 auto; padding: 1.5rem 5%; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+                <i class="fa-solid fa-map-location-dot" style="color: var(--primary-color); font-size: 1.3rem;"></i>
+                <span style="font-weight: 600; color: var(--text-main);">KaenGuide</span>
+                <span style="color: var(--text-muted); font-size: 0.85rem;">— เที่ยวขอนแก่น วางแผนง่าย เดินทางได้จริง</span>
+            </div>
+            <div style="font-size: 0.88rem; color: var(--text-muted);">
+                &copy; 2026 KaenGuide. All Rights Reserved. &middot; 
+                <a href="../admin/login.html" style="color: inherit; opacity: 0.7; text-decoration: none; transition: opacity 0.2s ease;">
+                    <i class="fa-solid fa-lock"></i> ระบบแอดมิน
+                </a>
+            </div>
+        </div>
     </footer>
 
-    <script src="script.js"></script>
+    <!-- Floating Back-to-Top Button -->
+    <button class="back-to-top-btn" id="backToTopBtn" aria-label="เลื่อนขึ้นบนสุด">
+        <i class="fa-solid fa-arrow-up"></i>
+    </button>
+
+    <!-- Scripts -->
+    <script src="script.js?v=4"></script>
     <script src="../scroll-animate.js"></script>
-    <script src="../mobile-nav.js"></script>
+    <script src="../mobile-nav.js?v=4"></script>
 </body>
 
 </html>

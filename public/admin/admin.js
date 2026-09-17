@@ -112,6 +112,16 @@ function filterPlaces() {
     renderTable(filtered);
 }
 
+// หน้าที่ช่วย: แปลง open_days string เป็น pill HTML
+function renderOpenDaysPills(openDays) {
+    const dayNames = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+    const dayColors = ['#FECACA', '#DBEAFE', '#FEF3C7', '#D1FAE5', '#EDE9FE', '#FFE4E6', '#FEF9C3'];
+    const dayTextColors = ['#991B1B', '#1E40AF', '#92400E', '#065F46', '#5B21B6', '#9F1239', '#713F12'];
+    const days = openDays ? openDays.split(',').map(d => parseInt(d.trim())).filter(d => !isNaN(d)) : [0,1,2,3,4,5,6];
+    if (days.length === 7) return `<span style="color:#059669; font-size:0.8rem; font-weight:500;"><i class="fa-solid fa-circle-check"></i> ทุกวัน</span>`;
+    return days.sort((a,b)=>a-b).map(d => `<span style="background:${dayColors[d]}; color:${dayTextColors[d]}; padding:2px 7px; border-radius:12px; font-size:0.75rem; font-weight:600; margin:1px;">${dayNames[d]}</span>`).join('');
+}
+
 // เรนเดอร์ตารางสถานที่
 function renderTable(list) {
     const tbody = document.getElementById('places-table-body');
@@ -120,7 +130,7 @@ function renderTable(list) {
     if (list.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7" style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
+                <td colspan="8" style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
                     <i class="fa-solid fa-box-open" style="font-size: 2rem; margin-bottom: 0.5rem; display: block; opacity: 0.5;"></i>
                     ไม่พบข้อมูลสถานที่
                 </td>
@@ -136,6 +146,7 @@ function renderTable(list) {
         const hours = place.opening_hours || place.openingHours || '08:00 - 18:00 น.';
         const lat = place.latitude !== undefined ? place.latitude : place.lat;
         const lng = place.longitude !== undefined ? place.longitude : place.lng;
+        const openDaysHtml = renderOpenDaysPills(place.open_days);
 
         tr.innerHTML = `
             <td>
@@ -149,6 +160,7 @@ function renderTable(list) {
             </td>
             <td><span class="badge-cat">${place.category}</span></td>
             <td><span class="hours-pill"><i class="fa-regular fa-clock"></i> ${hours}</span></td>
+            <td><div style="display:flex; flex-wrap:wrap; gap:2px; max-width:120px;">${openDaysHtml}</div></td>
             <td><span class="rating-pill"><i class="fa-solid fa-star"></i> ${rating}</span></td>
             <td><span class="coord-text">${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}</span></td>
             <td style="text-align: center;">
@@ -172,9 +184,10 @@ function openModal() {
     document.getElementById('place-id').value = '';
     document.getElementById('place-opening-hours').value = '08:00 - 18:00 น.';
     document.getElementById('place-rating').value = '4.5';
-    document.getElementById('place-time').value = '60';
     document.getElementById('image-preview-container').style.display = 'none';
     document.getElementById('modal-title').innerHTML = '<i class="fa-solid fa-plus-circle"></i> เพิ่มสถานที่ใหม่';
+    // เซ็ตวันที่เปิดทำการเป็นทุกวัน (default)
+    document.querySelectorAll('input[name="open_day"]').forEach(cb => cb.checked = true);
     modal.style.display = 'block';
 }
 
@@ -207,7 +220,12 @@ function editPlace(id) {
     document.getElementById('place-rating').value = place.rating || 4.5;
     document.getElementById('place-lat').value = place.latitude !== undefined ? place.latitude : place.lat;
     document.getElementById('place-lng').value = place.longitude !== undefined ? place.longitude : place.lng;
-    document.getElementById('place-time').value = place.time_spent || place.timeSpent || 60;
+
+    // เซ็ต checkbox วันที่เปิดทำการ
+    const openDaysList = (place.open_days || '0,1,2,3,4,5,6').split(',').map(d => d.trim());
+    document.querySelectorAll('input[name="open_day"]').forEach(cb => {
+        cb.checked = openDaysList.includes(cb.value);
+    });
 
     previewImage(place.image);
 
@@ -222,6 +240,13 @@ async function saveFormData() {
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังบันทึก...';
 
+    const existingPlace = id ? placesData.find(p => String(p.id) === String(id)) : null;
+    const defaultTimeSpent = (existingPlace && (existingPlace.time_spent || existingPlace.timeSpent)) || 60;
+
+    // อ่าน open_days จาก checkboxes
+    const checkedDays = Array.from(document.querySelectorAll('input[name="open_day"]:checked')).map(cb => cb.value);
+    const finalOpenDays = checkedDays.length > 0 ? checkedDays.join(',') : '0,1,2,3,4,5,6';
+
     const payload = {
         name: document.getElementById('place-name').value.trim(),
         category: document.getElementById('place-category').value,
@@ -231,10 +256,11 @@ async function saveFormData() {
         longitude: parseFloat(document.getElementById('place-lng').value),
         lng: parseFloat(document.getElementById('place-lng').value),
         opening_hours: document.getElementById('place-opening-hours').value.trim(),
+        open_days: finalOpenDays,
         rating: parseFloat(document.getElementById('place-rating').value),
         image: document.getElementById('place-image').value.trim(),
-        time_spent: parseInt(document.getElementById('place-time').value),
-        timeSpent: parseInt(document.getElementById('place-time').value)
+        time_spent: defaultTimeSpent,
+        timeSpent: defaultTimeSpent
     };
 
     try {

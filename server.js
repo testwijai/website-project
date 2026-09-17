@@ -45,8 +45,13 @@ async function initDatabase() {
                 rating NUMERIC(2, 1) DEFAULT 4.5,
                 image TEXT,
                 time_spent INTEGER DEFAULT 60,
+                open_days VARCHAR(20) DEFAULT '0,1,2,3,4,5,6',
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
+        `);
+        // เพิ่ม column open_days ถ้ายังไม่มี (สำหรับ DB ที่มีอยู่แล้ว)
+        await pool.query(`
+            ALTER TABLE places ADD COLUMN IF NOT EXISTS open_days VARCHAR(20) DEFAULT '0,1,2,3,4,5,6';
         `);
         console.log('✅ ตรวจสอบตาราง places ใน PostgreSQL เรียบร้อย');
 
@@ -135,6 +140,7 @@ function formatPlace(row) {
         latitude: parseFloat(row.latitude),
         longitude: parseFloat(row.longitude),
         opening_hours: row.opening_hours || '08:00 - 18:00 น.',
+        open_days: row.open_days || '0,1,2,3,4,5,6',
         rating: parseFloat(row.rating) || 4.5,
         image: row.image || '',
         timeSpent: parseInt(row.time_spent) || 60,
@@ -183,6 +189,7 @@ app.post('/api/places', async (req, res) => {
             lng,
             opening_hours,
             openingHours,
+            open_days,
             rating,
             image,
             time_spent,
@@ -193,6 +200,7 @@ app.post('/api/places', async (req, res) => {
         const finalLng = parseFloat(longitude !== undefined ? longitude : lng);
         const finalTime = parseInt(time_spent !== undefined ? time_spent : (timeSpent || 60));
         const finalHours = opening_hours || openingHours || '08:00 - 18:00 น.';
+        const finalOpenDays = open_days || '0,1,2,3,4,5,6';
         const finalRating = parseFloat(rating) || 4.5;
 
         if (!name || !category || isNaN(finalLat) || isNaN(finalLng)) {
@@ -203,11 +211,11 @@ app.post('/api/places', async (req, res) => {
         }
 
         const query = `
-            INSERT INTO places (name, category, description, latitude, longitude, opening_hours, rating, image, time_spent)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO places (name, category, description, latitude, longitude, opening_hours, open_days, rating, image, time_spent)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *;
         `;
-        const values = [name, category, description || '', finalLat, finalLng, finalHours, finalRating, image || '', finalTime];
+        const values = [name, category, description || '', finalLat, finalLng, finalHours, finalOpenDays, finalRating, image || '', finalTime];
         const result = await pool.query(query, values);
 
         res.status(201).json({
@@ -235,6 +243,7 @@ app.put('/api/places/:id', async (req, res) => {
             lng,
             opening_hours,
             openingHours,
+            open_days,
             rating,
             image,
             time_spent,
@@ -245,6 +254,7 @@ app.put('/api/places/:id', async (req, res) => {
         const finalLng = parseFloat(longitude !== undefined ? longitude : lng);
         const finalTime = parseInt(time_spent !== undefined ? time_spent : (timeSpent || 60));
         const finalHours = opening_hours || openingHours || '08:00 - 18:00 น.';
+        const finalOpenDays = open_days || '0,1,2,3,4,5,6';
         const finalRating = parseFloat(rating) || 4.5;
 
         const query = `
@@ -255,13 +265,14 @@ app.put('/api/places/:id', async (req, res) => {
                 latitude = $4,
                 longitude = $5,
                 opening_hours = $6,
-                rating = $7,
-                image = $8,
-                time_spent = $9
-            WHERE id = $10
+                open_days = $7,
+                rating = $8,
+                image = $9,
+                time_spent = $10
+            WHERE id = $11
             RETURNING *;
         `;
-        const values = [name, category, description || '', finalLat, finalLng, finalHours, finalRating, image || '', finalTime, id];
+        const values = [name, category, description || '', finalLat, finalLng, finalHours, finalOpenDays, finalRating, image || '', finalTime, id];
         const result = await pool.query(query, values);
 
         if (result.rows.length === 0) {
