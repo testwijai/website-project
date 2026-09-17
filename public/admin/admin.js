@@ -221,20 +221,38 @@ function editPlace(id) {
     document.getElementById('place-lat').value = place.latitude !== undefined ? place.latitude : place.lat;
     document.getElementById('place-lng').value = place.longitude !== undefined ? place.longitude : place.lng;
 
-    // เซ็ต checkbox วันที่เปิดทำการ
+    // เซ็ต checkbox วันที่เปิดทำการ (รองรับ null / undefined / "undefined" / ค่าว่าง)
     const rawOpenDays = place.open_days;
-    console.log(`[editPlace] id=${id} | open_days from API: "${rawOpenDays}"`);
+    console.log(`[editPlace] id=${id} | open_days from API: "${rawOpenDays}" (type: ${typeof rawOpenDays})`);
 
-    const openDaysList = (rawOpenDays || '0,1,2,3,4,5,6')
-        .split(',')
-        .map(d => String(d).trim())
-        .filter(d => d !== '');
+    // แปลงค่าดิบเป็น array ตัวเลข 0-6 อย่างปลอดภัย
+    const VALID_DAYS = ['0', '1', '2', '3', '4', '5', '6'];
+    let openDaysList;
+
+    const rawStr = (rawOpenDays !== null && rawOpenDays !== undefined)
+        ? String(rawOpenDays).trim()
+        : '';
+
+    if (rawStr === '' || rawStr === 'undefined' || rawStr === 'null') {
+        // ค่าผิดปกติ → ติ๊กครบทุกวัน (default)
+        openDaysList = [...VALID_DAYS];
+    } else {
+        openDaysList = rawStr
+            .split(',')
+            .map(d => String(d).trim())
+            .filter(d => VALID_DAYS.includes(d)); // กรองเฉพาะตัวเลข 0-6
+
+        // ถ้ากรองแล้วไม่เหลืออะไรเลย → fallback ครบทุกวัน
+        if (openDaysList.length === 0) {
+            openDaysList = [...VALID_DAYS];
+        }
+    }
 
     document.querySelectorAll('input[name="open_day"]').forEach(cb => {
         cb.checked = openDaysList.includes(String(cb.value));
     });
 
-    console.log(`[editPlace] openDaysList: [${openDaysList}] | checkboxes set`);
+    console.log(`[editPlace] openDaysList: [${openDaysList.join(',')}] | checkboxes set`);
 
     previewImage(place.image);
 
