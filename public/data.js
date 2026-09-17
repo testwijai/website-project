@@ -101,7 +101,7 @@ async function loadPlaces() {
     try {
         const apiUrl = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
             ? 'http://localhost:5000/api/places'
-            : 'https://testwijai-backend-eo0d.onrender.com/api/places';
+            : 'https://website-project-rbgj.onrender.com/api/places';
         const response = await fetch(apiUrl);
         if (response.ok) {
             const result = await response.json();
